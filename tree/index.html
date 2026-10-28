@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Comic Scroll</title>
+    <style>
+        /* THE STAGE */
+        body {
+            margin: 0;
+            padding: 0;
+            height: 8000px; 
+            background-color: #1a221c; 
+            overflow-x: hidden;
+        }
+
+        body.locked {
+            overflow: hidden;
+            height: 100vh; 
+        }
+
+        /* THE WRAPPERS */
+        .layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh; 
+            pointer-events: none; 
+        }
+
+        .parallax-target {
+            position: relative;
+            width: 100vw;
+            will-change: transform;
+        }
+
+        .parallax-target > img.main-art {
+            width: 100vw;
+            display: block;
+        }
+
+        /* --- INTRO SCENE ITEMS --- */
+        #branch {
+            position: absolute;
+            top: 25vw; 
+            left: -4vw; 
+            width: 40vw; 
+            pointer-events: none;
+            transition: transform 1.5s ease-in, opacity 1.2s ease-in 0.2s;
+            transform-origin: right center; 
+        }
+
+        #branch.snapped {
+            transform: translateY(40vw) rotate(-25deg); 
+            opacity: 0; 
+        }
+
+        /* The Stats Container */
+        #stats-container {
+            position: absolute;
+            top: 1vw; 
+            right: 10vw; 
+            width: 45vw; 
+            pointer-events: auto; 
+            cursor: pointer;
+        }
+
+        #stats-container.shaking {
+            animation: shakeBush 0.5s ease-in-out;
+        }
+
+        @keyframes shakeBush {
+            0% { transform: translateX(0) rotate(0deg); }
+            20% { transform: translateX(-15px) rotate(-3deg); }
+            40% { transform: translateX(15px) rotate(3deg); }
+            60% { transform: translateX(-10px) rotate(-2deg); }
+            80% { transform: translateX(10px) rotate(2deg); }
+            100% { transform: translateX(0) rotate(0deg); }
+        }
+
+        /* The layered bushes */
+        #stats-bg-full {
+            width: 100%;
+            display: block;
+            opacity: 0; 
+            transition: opacity 0.8s ease-in-out;
+        }
+
+        #stats-bg-empty {
+            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            opacity: 1; 
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        .donut {
+            position: absolute;
+            width: 8.5%; 
+            filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.3)); 
+        }
+
+        .real-donut {
+            opacity: 0;
+            transition: opacity 0.8s ease-in-out 0.3s;
+        }
+
+        .donut.knocked {
+            animation: donutPhysics 1.5s forwards;
+        }
+
+        @keyframes donutPhysics {
+            0% { 
+                transform: translate(0px, 0px) rotate(0deg); 
+                animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1); 
+            }
+            20% { 
+                transform: translate(var(--scatter-x), var(--scatter-y, -80px)) rotate(120deg); 
+                animation-timing-function: cubic-bezier(0.5, 0, 1, 1); 
+            }
+            100% { 
+                transform: translate(var(--scatter-x-end), 200vh) rotate(720deg); 
+            }
+        }
+
+        /* Y-Axis (Rows) */
+        .row-dex { top: 20%; }
+        .row-str { top: 29%; }
+        .row-int { top: 38.5%; }
+        .row-wis { top: 48%; }
+        .row-cha { top: 58%; }
+
+        /* X-Axis (Columns) */
+        .col-1 { left: 52%; }
+        .col-2 { left: 63%; }
+        .col-3 { left: 74%; }
+        .col-4 { left: 85%; }
+
+        /* --- MID-FALL NARRATIVE ITEMS --- */
+        #bark-stats {
+            position: absolute;
+            top: 150vw; 
+            left: 45%;
+            transform: translateX(-50%); 
+            width: 45vw; 
+            pointer-events: none;
+            clip-path: inset(0px 0px 100% 0px); 
+            will-change: clip-path;
+        }
+
+        #big-branch {
+            position: absolute;
+            top: 250vw; 
+            left: 0; 
+            width: 100vw; 
+            pointer-events: none;
+        }
+
+        #caterpillar {
+            position: absolute;
+            top: 249vw; 
+            left: -65vw; 
+            width: 70vw; 
+            pointer-events: none;
+            will-change: transform;
+            transition: transform 0.8s ease-out;
+        }
+
+        /* --- THE HERO, DIALOGUE & HAT --- */
+        #hero {
+            z-index: 100; 
+            transition: top 1.5s ease-in, left 1.5s ease-out, transform 1.5s ease-in-out;
+        }
+
+        #hero.sitting {
+            position: absolute;
+            top: 15vw; 
+            left: 4vw; 
+            width: 300px; 
+            cursor: grab; 
+            pointer-events: auto; 
+        }
+
+        #hero.dragging {
+            position: fixed; 
+            transition: none !important; 
+            cursor: grabbing; 
+            width: 380px !important; 
+        }
+
+        #hero.falling {
+            position: fixed;
+            top: 75%; 
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(0deg);
+            width: 200px; 
+            pointer-events: none;
+            animation: float 2.5s ease-in-out infinite 1.5s; 
+        }
+
+        #hero.scraping {
+            position: fixed;
+            top: 75%; 
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-15deg); 
+            width: 200px; 
+            pointer-events: none;
+            animation: none; 
+        }
+
+        .speech-bubble {
+            position: fixed; 
+            z-index: 150; 
+            width: 250px; 
+            opacity: 0; 
+            pointer-events: none; 
+        }
+
+        /* Moved medium amount right and down from the character */
+        #bubble-hey, #bubble-closer {
+            top: 12vw; 
+            left: 20vw;
+            transition: opacity 0.3s ease-in-out; 
+        }
+
+        /* Removed top/left transition for NO bubble to prevent dragging lag */
+        #bubble-no {
+            width: 220px !important;
+            transition: opacity 0.2s ease-in-out;
+        }
+
+        #hat {
+            position: fixed;
+            z-index: 95; 
+            opacity: 0; 
+            pointer-events: none;
+            width: 100px; 
+            transition: top 2.5s ease-out, left 2.5s ease-out, transform 2.5s ease-out, opacity 0.5s ease-in;
+        }
+
+        #hat.falling {
+            opacity: 1;
+            top: 60%; 
+            left: 45%; 
+            transform: translate(-50%, -50%) rotate(-25deg);
+            animation: floatHat 3s ease-in-out infinite 1.5s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+            50% { transform: translate(-50%, -55%) rotate(0deg); } 
+        }
+
+        @keyframes floatHat {
+            0%, 100% { transform: translate(-50%, -50%) rotate(-25deg); }
+            50% { transform: translate(-50%, -60%) rotate(-15deg); } 
+        }
+
+        .item { display: none; }
+
+        /* --- IMPACT / LANDING SEQUENCE --- */
+        #hero.landed {
+            position: absolute;
+            bottom: 2vh;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 35vw;
+            pointer-events: none;
+            animation: impactSettle 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            z-index: 1000;
+        }
+
+        @keyframes impactSettle {
+            0%   { transform: translateX(-50%) scaleX(1.3) scaleY(0.6); filter: brightness(2); }
+            40%  { transform: translateX(-50%) scaleX(0.95) scaleY(1.05); filter: brightness(1.2); }
+            70%  { transform: translateX(-50%) scaleX(1.02) scaleY(0.98); filter: brightness(1); }
+            100% { transform: translateX(-50%) scaleX(1) scaleY(1); filter: brightness(1); }
+        }
+
+        @keyframes screenShake {
+            0%   { transform: translate(0, 0) rotate(0deg); }
+            10%  { transform: translate(-12px, -8px) rotate(-1deg); }
+            20%  { transform: translate(10px, 6px) rotate(1deg); }
+            30%  { transform: translate(-8px, -10px) rotate(-0.5deg); }
+            40%  { transform: translate(6px, 8px) rotate(0.5deg); }
+            50%  { transform: translate(-4px, -6px) rotate(-0.3deg); }
+            60%  { transform: translate(4px, 4px) rotate(0.2deg); }
+            70%  { transform: translate(-2px, -2px) rotate(0deg); }
+            100% { transform: translate(0, 0) rotate(0deg); }
+        }
+
+        body.impact {
+            animation: screenShake 0.7s ease-out forwards;
+        }
+
+        #impact-flash {
+            position: fixed;
+            inset: 0;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 999;
+            transition: opacity 0.05s ease-in;
+        }
+
+        #impact-flash.flash {
+            opacity: 0.85;
+            transition: opacity 0.05s ease-in;
+        }
+
+        #impact-flash.fade {
+            opacity: 0;
+            transition: opacity 0.5s ease-out;
+        }
+
+        .dust {
+            position: fixed;
+            bottom: 10vh;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #a0855a 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 190;
+            opacity: 0;
+        }
+
+        @keyframes dustPuff {
+            0%   { opacity: 0.9; transform: translate(0, 0) scale(0.5); }
+            60%  { opacity: 0.5; }
+            100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(var(--ds)); }
+        }
+
+        .dust.puff {
+            animation: dustPuff var(--dur) ease-out forwards;
+        }
+
+        #impact-lines {
+            position: fixed;
+            bottom: 5vh;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90vw;
+            height: 30vh;
+            pointer-events: none;
+            z-index: 195;
+            opacity: 0;
+        }
+
+        #impact-lines.show {
+            animation: linesFlash 0.6s ease-out forwards;
+        }
+
+        @keyframes linesFlash {
+            0%   { opacity: 1; transform: translateX(-50%) scale(0.3); }
+            40%  { opacity: 0.8; transform: translateX(-50%) scale(1.1); }
+            100% { opacity: 0; transform: translateX(-50%) scale(1.4); }
+        }
+    </style>
+</head>
+<body class="locked">
+
+    <img id="bubble-hey" class="speech-bubble" src="SpeechHey.png">
+    <img id="bubble-closer" class="speech-bubble" src="GetCloser.png">
+    <img id="bubble-no" class="speech-bubble" src="speechNo.png">
+
+    <div id="impact-flash"></div>
+    <svg id="impact-lines" viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg">
+        <line x1="450" y1="300" x2="50"  y2="20"  stroke="#c8a96e" stroke-width="4" stroke-linecap="round"/>
+        <line x1="450" y1="300" x2="150" y2="0"   stroke="#c8a96e" stroke-width="3" stroke-linecap="round"/>
+        <line x1="450" y1="300" x2="300" y2="10"  stroke="#c8a96e" stroke-width="5" stroke-linecap="round"/>
+        <line x1="450" y1="300" x2="450" y2="0"   stroke="#c8a96e" stroke-width="4" stroke-linecap="round"/>
+        <line x1="450" y1="300" x2="600" y2="10"  stroke="#c8a96e" stroke-width="5" stroke-linecap="round"/>
+        <line x1="450" y1="300" x2="750" y2="0"   stroke="#c8a96e" stroke-width="3" stroke-linecap="round"/>
+        <line x1="450" y1="300" x2="850" y2="20"  stroke="#c8a96e" stroke-width="4" stroke-linecap="round"/>
+        <line x1="450" y1="300" x2="20"  y2="120" stroke="#c8a96e" stroke-width="2" stroke-linecap="round"/>
+        <line x1="450" y1="300" x2="880" y2="120" stroke="#c8a96e" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+
+    <img id="hero" class="sitting" src="Untitled_Artwork-5.png" alt="Falling Sheriff">
+    <img id="hat" src="Untitled_Artwork_19.png" alt="Floating Hat">
+
+    <div class="layer" style="z-index: 1;">
+        <div class="parallax-target">
+            <img src="Untitled_Artwork-1.png" class="main-art">
+        </div>
+    </div>
+
+    <div class="layer" style="z-index: 2;">
+        <div class="parallax-target">
+            <img src="Untitled_Artwork-2.png" class="main-art">
+            <img id="branch" src="Untitled_Artwork-3.png">
+            
+            <div id="stats-container">
+                <img id="stats-bg-full" src="Untitled_Artwork-10.png">
+                <img id="stats-bg-empty" src="Untitled_Artwork-11.png">
+                
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 18%; left: 22%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 25%; left: 45%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 15%; left: 68%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 35%; left: 18%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 42%; left: 38%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 32%; left: 60%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 40%; left: 80%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 55%; left: 25%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 62%; left: 48%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 52%; left: 72%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 75%; left: 20%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 82%; left: 40%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 72%; left: 62%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 80%; left: 78%;">
+                <img class="donut scattered-donut" src="Untitled_Artwork-9.png" style="top: 58%; left: 12%;">
+
+                <img class="donut real-donut row-dex col-1" src="Untitled_Artwork-9.png">
+                <img class="donut real-donut row-str col-1" src="Untitled_Artwork-9.png">
+                <img class="donut real-donut row-str col-2" src="Untitled_Artwork-9.png">
+                <img class="donut real-donut row-int col-1" src="Untitled_Artwork-9.png">
+                <img class="donut real-donut row-wis col-1" src="Untitled_Artwork-9.png">
+                <img class="donut real-donut row-cha col-1" src="Untitled_Artwork-9.png">
+                <img class="donut real-donut row-cha col-2" src="Untitled_Artwork-9.png">
+                <img class="donut real-donut row-cha col-3" src="Untitled_Artwork-9.png">
+                <img class="donut real-donut row-cha col-4" src="Untitled_Artwork-9.png">
+            </div>
+
+            <img id="bark-stats" src="Untitled_Artwork-6.png">
+            <img id="pass-by-keagan" src="KeaganAwake.png" style="position: absolute; top: 450vw; left: 50%; transform: translateX(-50%); width: 100vw; pointer-events: none; z-index: 1;">
+
+            <img id="fallen-Donuts" src="fallenDonuts.png" style="position: absolute; top: 550vw; left: 50%; transform: translateX(-50%); width: 100vw; pointer-events: none; z-index: 1;">
+            
+            </div>
+    </div>
+
+    <div class="layer" style="z-index: 200;">
+        <div class="parallax-target">
+            <img src="Untitled_Artwork-2.png" class="main-art" style="opacity: 0;">
+            <img id="big-branch" src="NewBranch.png">
+            <img id="caterpillar" src="Untitled_Artwork-8.png">
+            
+        </div>
+    </div>
+
+    <script>
+        const hero = document.getElementById('hero');
+        const hat = document.getElementById('hat');
+        const branch = document.getElementById('branch'); 
+        
+        const bubbleHey = document.getElementById('bubble-hey');
+        const bubbleCloser = document.getElementById('bubble-closer');
+        const bubbleNo = document.getElementById('bubble-no');
+
+        let isDragging = false;
+        let hasShaken = false;
+        let offsetX = 0;
+        let offsetY = 0;
+        let sadTimer;
+        let t1, t2, t3; // Storing timeouts so we can cancel them if grabbed early
+
+        // --- MONOLOGUE SEQUENCE ---
+        window.addEventListener('load', () => {
+            t1 = setTimeout(() => {
+                if (!isDragging && hero.classList.contains('sitting')) {
+                    hero.src = 'Untitled_Artwork-5 - Copy.png';
+                    bubbleHey.style.opacity = '1';
+                }
+            }, 1500);
+
+            t2 = setTimeout(() => {
+                if (!isDragging && hero.classList.contains('sitting')) {
+                    bubbleHey.style.opacity = '0';
+                    bubbleCloser.style.opacity = '1';
+                }
+            }, 4000);
+
+            t3 = setTimeout(() => {
+                if (!isDragging && hero.classList.contains('sitting')) {
+                    bubbleCloser.style.opacity = '0';
+                    hero.src = 'Untitled_Artwork-5.png'; 
+                }
+            }, 7000);
+        });
+
+        // --- BUBBLE FOLLOW HELPER ---
+        function updateNoBubblePosition() {
+            const heroRect = hero.getBoundingClientRect();
+            // Locked firmly to the RIGHT side of the character, Y-axis perfectly in the middle
+            bubbleNo.style.left = (heroRect.right + 20) + 'px';
+            bubbleNo.style.top = (heroRect.top + (heroRect.height / 2) - 40) + 'px';
+        }
+
+        // --- COLLISION REACTION (Sad Sheriff) ---
+        function handleCollision() {
+            if (!isDragging) return;
+            
+            hero.src = 'sherrifSad.png';
+            bubbleNo.style.opacity = '1';
+            updateNoBubblePosition();
+
+            clearTimeout(sadTimer);
+            sadTimer = setTimeout(() => {
+                if (isDragging) {
+                    hero.src = 'Untitled_Artwork 18.png';
+                }
+                bubbleNo.style.opacity = '0';
+            }, 1500);
+        }
+
+        // --- PARALLAX LOGIC ---
+        function updateParallax() {
+            const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+            const maxScroll = document.body.scrollHeight - window.innerHeight;
+            const scrollProgress = maxScroll > 0 ? (scrollY / maxScroll) : 0;
+
+            const parallaxTargets = document.querySelectorAll('.parallax-target');
+            parallaxTargets.forEach(target => {
+                const img = target.querySelector('.main-art'); 
+                if(!img) return;
+                const maxTravel = Math.max(0, img.offsetHeight - window.innerHeight);
+                const yPos = -(maxTravel * scrollProgress);
+                target.style.transform = `translate3d(0px, ${yPos}px, 0px)`;
+            });
+
+            // --- GROW HERO & HAT near bottom ---
+            if (!hero.classList.contains('sitting') && !hero.classList.contains('dragging') && !hero.classList.contains('landed')) {
+                const growStart = 0.45;
+                let growProgress = (scrollProgress - growStart) / (1 - growStart);
+                growProgress = Math.max(0, Math.min(1, growProgress));
+
+                const minSize = 200;
+                const maxSize = 550; 
+                const heroSize = minSize + (maxSize - minSize) * growProgress;
+                hero.style.setProperty('width', `${heroSize}px`, 'important');
+
+                const hatMin = 100;
+                const hatMax = 275; 
+                const hatSize = hatMin + (hatMax - hatMin) * growProgress;
+                hat.style.setProperty('width', `${hatSize}px`, 'important');
+
+                if (growProgress >= 0.99 && !hero.classList.contains('landed')) {
+                    triggerImpact(hero);
+                }
+            }
+
+            if (!hero.classList.contains('sitting') && !hero.classList.contains('dragging') && !hero.classList.contains('landed') && scrollProgress < 0.99) {
+                const bark = document.getElementById('bark-stats');
+                const scrapeLine = window.innerHeight * 0.75; 
+                const barkRect = bark.getBoundingClientRect();
+                
+                if (barkRect.top < scrapeLine && barkRect.bottom > scrapeLine) {
+                    hero.classList.add('scraping');
+                    hero.classList.remove('falling');
+                    if(!hero.src.includes('16.png')) hero.src = 'Untitled_Artwork 16.png';
+                    const hiddenBottomPixels = barkRect.bottom - scrapeLine;
+                    bark.style.clipPath = `inset(0px 0px ${hiddenBottomPixels}px 0px)`;
+                } else {
+                    hero.classList.add('falling');
+                    hero.classList.remove('scraping');
+                    if(!hero.src.includes('17.png')) hero.src = 'Untitled_Artwork 17.png';
+                    if (barkRect.top >= scrapeLine) {
+                        bark.style.clipPath = `inset(0px 0px 100% 0px)`;
+                    } else if (barkRect.bottom <= scrapeLine) {
+                        bark.style.clipPath = `inset(0px 0px 0px 0px)`;
+                    }
+                }
+
+                const caterpillar = document.getElementById('caterpillar');
+                const catRect = caterpillar.getBoundingClientRect();
+                const windowHeight = window.innerHeight;
+                let crawlProgress = (windowHeight - catRect.top) / (windowHeight + catRect.height);
+                crawlProgress = Math.max(0, Math.min(1, crawlProgress));
+
+                let rawMove = 0;
+                if (crawlProgress < 0.4) {
+                    rawMove = (crawlProgress / 0.4) * 60; 
+                } else if (crawlProgress <= 0.6) {
+                    rawMove = 60; 
+                } else {
+                    rawMove = 60 + ((crawlProgress - 0.6) / 0.4) * 60; 
+                }
+                caterpillar.style.transform = `translateX(${rawMove}vw)`;
+            }
+        }
+
+        window.addEventListener('scroll', updateParallax);
+        window.addEventListener('resize', updateParallax);
+        window.addEventListener('load', updateParallax);
+
+        // --- IMPACT SEQUENCE ---
+        function triggerImpact(hero) {
+            hero.removeAttribute('style');
+            hero.classList.add('landed');
+            hero.classList.remove('falling', 'scraping');
+            hero.src = 'Untitled_Artwork.png'; // High quality resting image triggers right on impact!
+
+            setTimeout(() => {
+                const pageHeight = document.body.scrollHeight;
+                hero.src = 'Untitled_Artwork.png';
+                hero.style.position = 'absolute';
+                hero.style.bottom = '';
+                hero.style.top = (pageHeight - window.innerHeight * 0.20) + 'px';
+                hero.style.left = '50%';
+                hero.style.transform = 'translateX(-50%)';
+                hero.style.width = '60vw';
+                hero.style.zIndex = '1000';
+                hero.style.animation = 'none';
+                hero.style.transition = 'none';
+            }, 0);
+
+            document.getElementById('hat').style.opacity = '0';
+            document.getElementById('hat').style.transition = 'opacity 0.1s';
+
+            const flash = document.getElementById('impact-flash');
+            flash.classList.add('flash');
+            setTimeout(() => {
+                flash.classList.remove('flash');
+                flash.classList.add('fade');
+                setTimeout(() => flash.classList.remove('fade'), 500);
+            }, 80);
+
+            document.body.classList.add('impact');
+            setTimeout(() => document.body.classList.remove('impact'), 700);
+
+            const lines = document.getElementById('impact-lines');
+            lines.classList.add('show');
+            setTimeout(() => lines.classList.remove('show'), 600);
+
+            const dustCount = 18;
+            for (let i = 0; i < dustCount; i++) {
+                const dust = document.createElement('div');
+                dust.className = 'dust';
+                const angle = (Math.random() * 160 + 10) * (Math.PI / 180); 
+                const dist = Math.random() * 35 + 15;
+                const dx = Math.cos(angle) * dist * (Math.random() * 4 + 2) + 'vw';
+                const dy = -(Math.random() * 20 + 5) + 'vh';
+                const ds = Math.random() * 4 + 2;
+                const dur = (Math.random() * 0.6 + 0.5) + 's';
+                const startLeft = (45 + Math.random() * 10) + 'vw';
+                dust.style.left = startLeft;
+                dust.style.setProperty('--dx', dx);
+                dust.style.setProperty('--dy', dy);
+                dust.style.setProperty('--ds', ds);
+                dust.style.setProperty('--dur', dur);
+                dust.style.width = (Math.random() * 20 + 8) + 'px';
+                dust.style.height = dust.style.width;
+                document.body.appendChild(dust);
+                setTimeout(() => {
+                    dust.classList.add('puff');
+                    dust.addEventListener('animationend', () => dust.remove());
+                }, Math.random() * 120);
+            }
+        }
+
+        // --- REVEAL STATS LOGIC ---
+        function checkRevealStats() {
+            const remainingDonuts = document.querySelectorAll('.scattered-donut:not(.knocked)');
+            if (remainingDonuts.length === 0) {
+                hasShaken = true; 
+                document.getElementById('stats-bg-empty').style.opacity = '0';
+                document.getElementById('stats-bg-full').style.opacity = '1';
+
+                const realDonuts = document.querySelectorAll('.real-donut');
+                realDonuts.forEach(donut => {
+                    donut.style.opacity = '1';
+                });
+            }
+        }
+
+        const statsContainer = document.getElementById('stats-container');
+        statsContainer.addEventListener('click', () => {
+            if (hasShaken) return; 
+            hasShaken = true;
+
+            statsContainer.classList.add('shaking');
+            document.getElementById('stats-bg-empty').style.opacity = '0';
+            document.getElementById('stats-bg-full').style.opacity = '1';
+
+            const realDonuts = document.querySelectorAll('.real-donut');
+            realDonuts.forEach(donut => {
+                donut.style.opacity = '1';
+            });
+
+            const scatteredDonuts = document.querySelectorAll('.scattered-donut:not(.knocked)');
+            scatteredDonuts.forEach((donut, index) => {
+                setTimeout(() => {
+                    const dirX = Math.random() > 0.5 ? 1 : -1;
+                    const jumpX = dirX * (Math.random() * 100 + 50); 
+                    const jumpY = -(Math.random() * 150 + 50);
+                    const endX = dirX * (Math.random() * 400 + 100);
+                    
+                    donut.style.setProperty('--scatter-x', `${jumpX}px`);
+                    donut.style.setProperty('--scatter-y', `${jumpY}px`);
+                    donut.style.setProperty('--scatter-x-end', `${endX}px`);
+                    donut.classList.add('knocked');
+
+                    donut.addEventListener('animationend', () => {
+                        donut.remove();
+                    }, { once: true });
+                }, Math.random() * 150); 
+            });
+        });
+
+        // --- DRAG-TO-FALL & COLLISION LOGIC ---
+        hero.addEventListener('mousedown', startDrag);
+        hero.addEventListener('touchstart', startDrag, { passive: false });
+
+        function startDrag(e) {
+            if (!hero.classList.contains('sitting')) return;
+            
+            // Instantly clear the intro monologue bubbles and reset width to prevent interference
+            clearTimeout(t1);
+            clearTimeout(t2);
+            clearTimeout(t3);
+            bubbleHey.style.opacity = '0';
+            bubbleCloser.style.opacity = '0';
+
+            isDragging = true;
+            hero.classList.add('dragging');
+            hero.src = 'Untitled_Artwork 18.png';
+
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            offsetX = 174; 
+            offsetY = 15;  
+            
+            hero.style.left = `${clientX - offsetX}px`;
+            hero.style.top = `${clientY - offsetY}px`;
+
+            window.addEventListener('mousemove', dragMove);
+            window.addEventListener('touchmove', dragMove, { passive: false });
+            window.addEventListener('mouseup', releaseHero);
+            window.addEventListener('touchend', releaseHero);
+
+            if (e.cancelable) e.preventDefault();
+        }
+
+        function checkDonutCollisions() {
+            const heroRect = hero.getBoundingClientRect();
+            const donuts = document.querySelectorAll('.scattered-donut:not(.knocked)');
+            let hitDonut = false;
+
+            donuts.forEach(donut => {
+                if (window.getComputedStyle(donut).opacity == 0) return;
+                const donutRect = donut.getBoundingClientRect();
+                
+                if (
+                    heroRect.left < donutRect.right &&
+                    heroRect.right > donutRect.left &&
+                    heroRect.top < donutRect.bottom &&
+                    heroRect.bottom > donutRect.top
+                ) {
+                    hitDonut = true; 
+                    const heroCenter = heroRect.left + (heroRect.width / 2);
+                    const donutCenter = donutRect.left + (donutRect.width / 2);
+                    const direction = heroCenter < donutCenter ? 1 : -1;
+                    const jumpX = direction * (Math.random() * 60 + 20); 
+                    const endX = direction * (Math.random() * 300 + 100);
+                    
+                    donut.style.setProperty('--scatter-x', `${jumpX}px`);
+                    donut.style.setProperty('--scatter-y', `-80px`);
+                    donut.style.setProperty('--scatter-x-end', `${endX}px`);
+                    donut.classList.add('knocked');
+
+                    donut.addEventListener('animationend', () => {
+                        donut.remove();
+                    }, { once: true });
+
+                    checkRevealStats();
+                }
+            });
+
+            if (hitDonut) {
+                handleCollision();
+            }
+        }
+
+        function dragMove(e) {
+            if (!isDragging) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            hero.style.left = `${clientX - offsetX}px`;
+            hero.style.top = `${clientY - offsetY}px`;
+
+            if (bubbleNo.style.opacity === '1') {
+                updateNoBubblePosition();
+            }
+            checkDonutCollisions();
+            if (e.cancelable) e.preventDefault();
+        }
+
+        function releaseHero() {
+            if (!isDragging) return;
+            isDragging = false;
+            hero.classList.remove('dragging');
+            
+            clearTimeout(sadTimer);
+            bubbleNo.style.opacity = '0';
+
+            const heroRect = hero.getBoundingClientRect();
+            hat.style.left = `${heroRect.left + 180}px`; 
+            hat.style.top = `${heroRect.top - 50}px`;
+            
+            hero.src = 'Untitled_Artwork 17.png';
+            
+            void hat.offsetWidth;
+            hat.classList.add('falling');
+            hat.style.left = '';
+            hat.style.top = '';
+
+            window.removeEventListener('mousemove', dragMove);
+            window.removeEventListener('touchmove', dragMove);
+            window.removeEventListener('mouseup', releaseHero);
+            window.removeEventListener('touchend', releaseHero);
+
+            document.body.classList.remove('locked');
+            updateParallax(); 
+            
+            hero.classList.remove('sitting');
+            hero.classList.add('falling');
+            branch.classList.add('snapped'); 
+
+            hero.style.left = '';
+            hero.style.top = '';
+        }
+    </script>
+</body>
+</html>
