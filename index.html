@@ -1,0 +1,2341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Town Explorer Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        /* Two fonts only: Fredoka for everything, Press Start 2P for small pixel accents */
+        :root {
+            --ui: 'Fredoka', 'Segoe UI', sans-serif;
+            --pixel: 'Press Start 2P', monospace;
+            --ink: #1d1b26; --paper: #fff8e7; --gold: #ffcf3f; --green: #4fc463; --red: #ff6b5e;
+            --line: 3px solid var(--ink); --drop: 0 4px 0 rgba(0,0,0,0.35);
+        }
+        html, body, button { font-family: var(--ui); }
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a202c;
+            touch-action: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: block; /* Changed to block for full viewport canvas */
+        }
+        canvas {
+            background-color: #78a840; /* Grass color */
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+        #d-pad {
+            display: none;
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            gap: 15px;
+            z-index: 20;
+        }
+        .d-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.6);
+            border-radius: 15px;
+            color: white;
+            font-weight: bold;
+            font-size: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            user-select: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .d-btn:active {
+            background: rgba(255,255,255,0.6);
+            transform: translateY(2px);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        @media (max-width: 768px) {
+            #d-pad { display: grid; grid-template-columns: 60px 60px 60px; grid-template-rows: 60px 60px; }
+            #btn-up { grid-column: 2; grid-row: 1; }
+            #btn-left { grid-column: 1; grid-row: 2; }
+            #btn-down { grid-column: 2; grid-row: 2; }
+            #btn-right { grid-column: 3; grid-row: 2; }
+        }
+        /* Full-screen house interiors */
+        #interior {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: #000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+        }
+        #interior.open { opacity: 1; pointer-events: auto; }
+        #interior img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center;
+            display: block;
+        }
+        @media (max-aspect-ratio: 1/1) {
+            #interior img { object-fit: contain; object-position: center; }
+        }
+        #interior-exit {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            padding: 8px 18px;
+            background: var(--paper);
+            color: var(--ink);
+            border: var(--line);
+            border-radius: 999px;
+            font: 600 17px var(--ui);
+            box-shadow: var(--drop);
+            cursor: pointer;
+            z-index: 30;
+        }
+        #interior-exit:hover { background: var(--gold); }
+        #family-hint, #shop-hint, #potion-hint, #talk-close, #shop-close {
+            background: rgba(29,27,38,0.85) !important; color: #fff !important; border-radius: 999px !important;
+            padding: 7px 18px !important; font: 500 15px var(--ui) !important;
+        }
+
+        /* ---- Witches Brewery potions ---- */
+        #potions { display: none; }
+        #potions.active { display: block; }
+        .potion {
+            position: absolute;
+            cursor: pointer;
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            transition: filter 0.15s, transform 0.15s;
+        }
+        #potion-red   { background-image: url('potion_red.png'); }
+        #potion-green { background-image: url('potion_green.png'); }
+        #potion-blue  { background-image: url('potion_blue.png'); }
+        .potion:hover {
+            filter: drop-shadow(0 0 6px rgba(255,255,255,0.95)) drop-shadow(0 0 18px rgba(255,255,255,0.7));
+            transform: translateY(-6px) scale(1.04);
+        }
+        /* ---- Family home: click a person to talk to them ---- */
+        #family { display: none; }
+        #family.active { display: block; }
+        .fam {
+            position: absolute;
+            cursor: pointer;
+            transition: filter 0.15s, transform 0.15s;
+        }
+        .fam:hover {
+            filter: drop-shadow(0 0 6px rgba(255,255,255,0.95)) drop-shadow(0 0 16px rgba(255,255,255,0.6));
+            transform: translateY(-6px);
+        }
+        #family-hint {
+            display: none; position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+            background: rgba(20,20,20,0.85); color: #fff; padding: 6px 14px; border-radius: 8px;
+            font-size: 14px; pointer-events: none; z-index: 5;
+        }
+        #family-hint.active { display: block; }
+        #talk {
+            position: absolute; inset: 0; z-index: 20; display: none;
+            background: rgba(0,0,0,0.28);
+            -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
+            cursor: pointer;
+        }
+        #talk.show { display: block; }
+        #interior #talk-person {
+            position: absolute; bottom: -3vh; left: 4vw; height: 94vh; max-width: 44vw;
+            object-fit: contain; object-position: left bottom;
+            animation: talkIn 0.35s ease-out;
+        }
+        @keyframes talkIn { from { transform: translateY(40px) scale(0.85); opacity: 0; } to { transform: none; opacity: 1; } }
+        #talk-bubble {
+            position: absolute; left: 46vw; top: 38%; transform: translateY(-50%);
+            width: max-content; max-width: min(46vw, 620px); min-height: 0; padding: 26px 32px;
+            background: #fff; color: var(--ink); border: 5px solid #000; border-radius: 44px;
+            font-size: clamp(20px, 2.4vw, 32px); line-height: 1.3; font-weight: 600; text-wrap: balance;
+            animation: bubbleIn 0.4s 0.15s ease-out backwards;
+        }
+        #talk-bubble::before {  /* tail pointing at the person on the left */
+            content: ''; position: absolute; left: -38px; top: 50%;
+            border: 22px solid transparent; border-right: 38px solid #000; border-left: 0;
+        }
+        #talk-bubble::after {
+            content: ''; position: absolute; left: -28px; top: calc(50% + 5px);
+            border: 17px solid transparent; border-right: 32px solid #fff; border-left: 0;
+        }
+        @keyframes bubbleIn { from { transform: translateY(-50%) scale(0.6); opacity: 0; } to { transform: translateY(-50%) scale(1); opacity: 1; } }
+        #talk-close {
+            position: absolute; right: 5vw; bottom: 16px; color: #fff; font-size: 14px;
+            background: rgba(20,20,20,0.7); padding: 5px 12px; border-radius: 8px;
+        }
+        /* ---- Junk N' Stuff: click a product to see its receipt ---- */
+        #shop { display: none; }
+        #shop.active { display: block; }
+        .prod { position: absolute; cursor: pointer; transition: filter 0.15s, transform 0.15s; }
+        .prod:hover {
+            filter: drop-shadow(0 0 6px rgba(255,255,255,0.95)) drop-shadow(0 0 16px rgba(255,255,255,0.6));
+            transform: translateY(-5px) scale(1.05);
+        }
+        #shop-hint {
+            display: none; position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+            background: rgba(20,20,20,0.85); color: #fff; padding: 6px 14px; border-radius: 8px;
+            font-size: 14px; pointer-events: none; z-index: 5;
+        }
+        #shop-hint.active { display: block; }
+        #shop-talk {
+            position: absolute; inset: 0; z-index: 20; display: none; cursor: pointer;
+            background: rgba(0,0,0,0.28);
+            -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
+        }
+        #shop-talk.show { display: block; }
+        #interior #shop-item {
+            position: absolute; left: 3vw; top: 50%; transform: translateY(-50%);
+            width: 40vw; height: auto; max-height: 70vh; object-fit: contain; object-position: center;
+            filter: drop-shadow(0 14px 18px rgba(0,0,0,0.45));
+            animation: itemIn 0.35s ease-out;
+        }
+        @keyframes itemIn { from { transform: translateY(-50%) scale(0.6); opacity: 0; } to { transform: translateY(-50%) scale(1); opacity: 1; } }
+        #receipt {
+            position: absolute; right: 3vw; top: 50%; transform: translateY(-50%);
+            width: min(44vw, 600px); max-height: 94vh; overflow: hidden;
+            background: #fdfcf3; color: #222; padding: 44px 38px 52px;
+            font-family: var(--ui); font-size: clamp(15px, 1.8vw, 24px); line-height: 1.4;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50%/16px 100%,
+                          conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50%/16px 100%;
+            -webkit-mask-composite: source-in; mask-composite: intersect;
+            animation: receiptIn 0.4s 0.12s ease-out backwards;
+        }
+        @keyframes receiptIn { from { transform: translateY(-50%) translateX(60px) rotate(3deg); opacity: 0; } to { transform: translateY(-50%); opacity: 1; } }
+        #receipt .r-shop { text-align: center; font-family: var(--pixel); font-size: 0.85em; line-height: 1.6; }
+        #receipt .r-sub { text-align: center; opacity: 0.7; font-size: 0.85em; }
+        #receipt .r-line { border-top: 2px dashed #444; margin: 12px 0; }
+        #receipt .r-row { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
+        #receipt .r-desc { margin-top: 8px; font-size: 0.92em; }
+        #receipt .r-total { font-size: 1.15em; }
+        #receipt .r-foot { text-align: center; font-size: 0.8em; opacity: 0.7; margin-top: 6px; }
+        #shop-close {
+            position: absolute; right: 4vw; bottom: 16px; color: #fff; font-size: 14px;
+            background: rgba(20,20,20,0.7); padding: 5px 12px; border-radius: 8px;
+        }
+
+        /* ---- Lab computer: "My Work" desktop ---- */
+        #lab { display: none; }
+        #lab.active { display: block; }
+        #lab-pc { position: absolute; cursor: pointer; border-radius: 10px; transition: box-shadow .15s, background .15s; }
+        #lab-pc:hover { background: rgba(120,220,255,0.16); box-shadow: 0 0 0 3px rgba(255,255,255,.9), 0 0 26px 8px rgba(120,220,255,.75); }
+        #lab-hint {
+            display: none; position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+            background: var(--ink); color: var(--paper); padding: 8px 16px; border: var(--line); border-radius: 12px;
+            font-family: var(--ui); font-size: 15px; pointer-events: none; z-index: 5;
+        }
+        #lab-hint.active { display: block; }
+        #work {
+            position: absolute; inset: 0; z-index: 30; display: none; cursor: default;
+            background: rgba(10,12,24,.55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+            align-items: center; justify-content: center; font-family: var(--ui);
+        }
+        #work.show { display: flex; }
+        #work .win {
+            width: min(92vw, 720px); max-height: min(76vh, 560px); margin-top: 20px; display: flex; flex-direction: column;
+            background: var(--paper); border: var(--line); border-radius: 16px; box-shadow: 6px 6px 0 rgba(0,0,0,.4); overflow: hidden;
+            animation: pcOn .25s ease-out;
+        }
+        @keyframes pcOn { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        #work .titlebar { display: flex; align-items: center; padding: 12px 16px; background: var(--ink); color: var(--paper); }
+        #work .titlebar h2 { margin: 0; font-family: var(--pixel); font-size: clamp(12px, 2vw, 16px); letter-spacing: 1px; flex: 1; }
+        #work .xbtn { width: 28px; height: 28px; border: 2px solid var(--paper); border-radius: 8px; background: transparent; color: var(--paper);
+            font-family: var(--ui); font-weight: 700; font-size: 14px; cursor: pointer; line-height: 1; }
+        #work .xbtn:hover { background: var(--red); border-color: var(--red); }
+        #work .list { flex: 1; overflow-y: auto; padding: 6px 16px 14px; color: var(--ink); }
+        #work .prac { padding: 12px 0; border-bottom: 2px solid rgba(29,27,38,.12); }
+        #work .prac:last-child { border-bottom: 0; }
+        #work .prac-head b { font-size: 17px; font-weight: 700; }
+        #work .prac p { margin: 2px 0 8px; font-size: 14px; opacity: .7; font-weight: 500; }
+        #work .files { display: flex; flex-wrap: wrap; gap: 8px; }
+        #work a.file {
+            display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; text-decoration: none; color: var(--ink);
+            background: #fff; border: 2px solid var(--ink); border-radius: 9px; font-size: 14px; font-weight: 600; transition: background .1s;
+        }
+        #work a.file:hover { background: var(--green); }
+        #work a.file small { opacity: .55; font-weight: 500; }
+        #potion-hint {
+            display: none;
+            position: absolute;
+            left: 50%;
+            bottom: 18px;
+            transform: translateX(-50%);
+            padding: 8px 16px;
+            background: rgba(0,0,0,0.6);
+            color: #fff;
+            border-radius: 10px;
+            pointer-events: none;
+        }
+        #potion-hint.active { display: block; }
+        .bubble {
+            position: absolute;
+            display: none;
+            max-width: 280px;
+            padding: 14px 20px;
+            background: #fff;
+            color: #000;
+            border: 4px solid #000;
+            border-radius: 26px;
+            font: 600 22px var(--ui);
+            text-align: center;
+            z-index: 5;
+            pointer-events: none;
+        }
+        .bubble.show { display: block; }
+        .bubble::after {               /* tail */
+            content: "";
+            position: absolute;
+            width: 22px; height: 22px;
+            background: #fff;
+            border: 4px solid #000;
+            border-top: none; border-left: none;
+            transform: rotate(45deg);
+        }
+        #bubble-player { right: 28px; bottom: 44px; }
+        #bubble-player::after { right: 34px; bottom: -14px; }           /* tail points down to the corner */
+        #bubble-witch::after { left: 46px; top: -14px; transform: rotate(-135deg); }  /* tail points up at the witch */
+        #bubble-keeper { white-space: nowrap; max-width: none; }
+        #bubble-keeper::after { left: -14px; top: 22px; transform: rotate(135deg); }  /* tail points left at the shopkeeper */
+        #toast {
+            position: absolute;
+            left: 50%; top: 22px;
+            transform: translateX(-50%);
+            padding: 10px 22px;
+            background: rgba(29,27,38,0.9);
+            color: var(--gold);
+            border: 3px solid var(--gold);
+            border-radius: 999px;
+            font: 600 20px var(--ui);
+            display: none;
+            pointer-events: none;
+        }
+        #toast.show { display: block; }
+
+        /* ---- YOU DIED ---- */
+        #death {
+            position: fixed;
+            inset: 0;
+            z-index: 300;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle, rgba(60,0,0,0.85), rgba(0,0,0,0.97));
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.8s ease;
+        }
+        #death.show { opacity: 1; pointer-events: auto; }
+        #death span {
+            color: #b30000;
+            font: clamp(36px, 9vw, 120px) var(--pixel);
+            letter-spacing: 0.08em;
+            text-shadow: 0 0 40px #600, 0 0 10px #000;
+        }
+
+        /* ---- Wild Charlie encounter (Pokemon style) ---- */
+        #encounter {
+            position: fixed; inset: 0; z-index: 150; display: none;
+            background: #326517; cursor: pointer; overflow: hidden;
+            font-family: var(--pixel);
+            image-rendering: pixelated;
+        }
+        #encounter.open { display: block; }
+        #encounter-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
+        #encounter-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 5; }
+        #encounter-flash.blink { animation: encFlash 0.8s steps(1) forwards; }
+        @keyframes encFlash { 0%{opacity:1} 12%{opacity:0} 25%{opacity:1} 37%{opacity:0} 50%{opacity:1} 62%{opacity:0} 75%{opacity:1} 100%{opacity:0} }
+        #charlie {
+            position: absolute; transform: translateX(120vw);
+        }
+        #charlie.in { transform: none; transition: transform 0.7s cubic-bezier(.2,.8,.3,1); }
+        #charlie img { width: 100%; height: 100%; object-fit: contain; display: block; image-rendering: auto; }
+        #charlie.idle img { animation: charlieBob 1.6s ease-in-out infinite; }
+        @keyframes charlieBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.2%); } }
+        #encounter-box {
+            position: absolute; left: 2vw; right: 2vw; bottom: 2.5vh; height: 24vh; z-index: 6;
+            background: #f8f8f8; border: 0.7vh solid #3b4a68; border-radius: 1.6vh;
+            box-shadow: inset 0 0 0 0.6vh #d8dce8, inset 0 0 0 1.1vh #e0a030, 0 0 0 0.5vh #1d2538;
+            padding: 3.2vh 3.4vw; box-sizing: border-box;
+        }
+        #encounter-text {
+            font-size: clamp(12px, 2.1vw, 30px); line-height: 1.7; color: #484848;
+            text-shadow: 0.12em 0.12em 0 #b8b8c0; white-space: pre-wrap;
+        }
+        #encounter-arrow {
+            position: absolute; right: 3vw; bottom: 2.4vh; width: 0; height: 0;
+            border-left: 1.1vw solid transparent; border-right: 1.1vw solid transparent; border-top: 1.6vw solid #c83030;
+            display: none; animation: arrowBlink 0.7s steps(1) infinite;
+        }
+        @keyframes arrowBlink { 0%{opacity:1} 50%{opacity:0} }
+        /* ---- HUD: goal card (top-left), coins (top-right), hotbar (bottom), prompts ---- */
+        .hud-card {
+            background: var(--paper); color: var(--ink); border: var(--line); border-radius: 16px;
+            box-shadow: var(--drop); user-select: none;
+        }
+        #coin-hud {
+            position: fixed; right: 16px; top: 16px; z-index: 125;
+            display: flex; align-items: center; gap: 10px; padding: 6px 18px 6px 10px;
+            font: 700 24px var(--ui);
+        }
+
+        #music-btn { position: fixed; right: 16px; top: 72px; z-index: 125; padding: 6px 12px; cursor: pointer;
+            font: 8px var(--pixel); color: var(--ink); user-select: none; }
+        #music-btn.off { opacity: .6; }
+        #music-btn:hover { transform: translateY(-1px); }
+        .coin-ico { display: inline-block; width: 24px; height: 24px; border-radius: 50%; background: #f5c518; border: 3px solid #5a4300; box-shadow: inset 0 0 0 3px #ffe680; flex: none; box-sizing: border-box; }
+        #coin-hud.bump { animation: coinBump 0.35s ease-out; }
+        @keyframes coinBump { 40% { transform: scale(1.15); } }
+        #boost-hud {
+            position: fixed; right: 16px; top: 74px; z-index: 125; display: none; pointer-events: none;
+            padding: 6px 14px; background: rgba(29,27,38,0.9); color: var(--gold);
+            border: 3px solid var(--gold); border-radius: 999px; font: 600 16px var(--ui);
+        }
+        #objective {
+            position: fixed; left: 16px; top: 16px; z-index: 90; width: 290px; padding: 10px 14px 12px; cursor: pointer;
+            transition: transform 0.15s;
+        }
+        #objective:hover { transform: translateY(-2px); }
+        #objective:not(.seen) { animation: goalGlow 1.6s ease-in-out infinite; }
+        @keyframes goalGlow { 50% { box-shadow: var(--drop), 0 0 0 5px rgba(255,207,63,0.85); } }
+        .ob-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+        .ob-label { font: 9px var(--pixel); color: #a86f00; letter-spacing: 0.5px; }
+        #checklist-btn { display: flex; align-items: center; gap: 6px; font: 600 14px var(--ui); color: #666; }
+        #checklist-btn kbd, .k {
+            display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 4px;
+            background: var(--ink); color: #fff; border-radius: 5px; font: 8px var(--pixel); box-sizing: border-box; vertical-align: middle;
+        }
+        #ob-text { font: 600 17px var(--ui); line-height: 1.25; }
+        .ob-bar { margin-top: 9px; height: 8px; border-radius: 99px; background: rgba(0,0,0,0.12); overflow: hidden; }
+        .ob-bar > div { height: 100%; width: 0; background: var(--green); border-radius: 99px; transition: width 0.4s; }
+        #hotbar {
+            position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 125;
+            display: flex; gap: 6px; padding: 6px; background: rgba(29,27,38,0.85);
+            border: var(--line); border-radius: 14px; box-shadow: var(--drop); user-select: none;
+        }
+        .slot {
+            position: relative; width: 60px; height: 60px; box-sizing: border-box; cursor: pointer;
+            background: rgba(255,255,255,0.08); border: 3px solid rgba(255,255,255,0.18); border-radius: 10px;
+            display: flex; align-items: center; justify-content: center; transition: border-color 0.15s, background 0.15s;
+        }
+        .slot.sel { border-color: var(--gold); background: rgba(255,207,63,0.18); }
+        .slot img { max-width: 78%; max-height: 78%; object-fit: contain; pointer-events: none; }
+        .slot .num { position: absolute; left: 4px; top: 4px; font: 7px var(--pixel); color: rgba(255,255,255,0.75); }
+        .slot .tag { position: absolute; left: 0; right: 0; bottom: 3px; text-align: center; font: 6px var(--pixel); color: #8dffa0; }
+        .slot.empty .num { opacity: 0.4; }
+        #slot-name {
+            position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 125;
+            background: rgba(29,27,38,0.9); color: #fff; padding: 5px 16px; border-radius: 999px;
+            font: 600 15px var(--ui); opacity: 0; transition: opacity 0.25s; pointer-events: none; white-space: nowrap;
+        }
+        #slot-name.show { opacity: 1; }
+        #ui-overlay {
+            position: fixed; left: 50%; bottom: 138px; transform: translateX(-50%); z-index: 90;
+            transition: opacity 0.2s; pointer-events: none; max-width: 90vw;
+        }
+        #message-text {
+            margin: 0; padding: 8px 20px; background: var(--paper); color: var(--ink); border: var(--line);
+            border-radius: 999px; box-shadow: var(--drop); font: 600 18px var(--ui); text-align: center; white-space: nowrap;
+        }
+        #chase-hud {
+            position: fixed; left: 50%; top: 16px; transform: translateX(-50%); z-index: 125; display: none;
+            padding: 8px 20px; font: 600 20px var(--ui); background: var(--red); color: #fff;
+        }
+        #chase-hud.show { display: block; animation: chasePulse 0.8s ease-in-out infinite; }
+        @keyframes chasePulse { 50% { transform: translateX(-50%) scale(1.05); } }
+        #banner {
+            position: fixed; left: 50%; top: 38%; z-index: 240; display: none; text-align: center; white-space: nowrap;
+            transform: translate(-50%, -50%); font: clamp(20px, 4vw, 48px) var(--pixel); color: var(--gold);
+            text-shadow: 4px 4px 0 var(--ink), -2px -2px 0 var(--ink), 2px -2px 0 var(--ink), -2px 2px 0 var(--ink); pointer-events: none;
+        }
+        #banner.show { display: block; animation: bannerIn 0.4s ease-out; }
+        @keyframes bannerIn { from { transform: translate(-50%, -50%) scale(0.3); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+        #quest-toast {
+            position: fixed; left: 50%; top: 16px; z-index: 230; transform: translateX(-50%) translateY(-110px);
+            padding: 9px 22px; font: 600 18px var(--ui); white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis;
+            transition: transform 0.35s ease-out; pointer-events: none;
+        }
+        #quest-toast.show { transform: translateX(-50%) translateY(0); }
+        /* ---- shop price tags + buy button ---- */
+        .ptag {
+            position: absolute; transform: translateX(-50%); z-index: 4; pointer-events: none; white-space: nowrap;
+            display: flex; align-items: center; gap: 6px; padding: 3px 12px 3px 7px; border: var(--line); border-radius: 999px;
+            font: 700 18px var(--ui); color: var(--ink); box-shadow: 0 3px 0 rgba(0,0,0,0.3);
+        }
+        .ptag .coin-ico { width: 16px; height: 16px; border-width: 2px; box-shadow: inset 0 0 0 2px #ffe680; }
+        .ptag.ok { background: #9ff0a8; }
+        .ptag.low { background: #ffb3ab; }
+        #r-buy { margin-top: 16px; text-align: center; }
+        #buy-btn {
+            font: 600 1.05em var(--ui); cursor: pointer; width: 100%;
+            padding: 10px 14px; border: var(--line); border-radius: 999px; background: var(--green); color: var(--ink);
+            box-shadow: var(--drop);
+        }
+        #buy-btn:hover { filter: brightness(1.08); }
+        #buy-btn.low { background: #d6d6d6; color: #666; cursor: not-allowed; }
+        #buy-btn.owned { background: var(--gold); cursor: default; }
+        #r-have { margin-top: 8px; font-size: 0.85em; opacity: 0.7; }
+        /* ---- Checklist (press I) ---- */
+        #checklist {
+            position: fixed; left: 50%; top: 50%; z-index: 220; display: none;
+            width: min(92vw, 500px); max-height: 90vh; overflow-y: auto; transform: translate(-50%, -50%);
+            background: var(--paper); color: var(--ink); border: var(--line); border-radius: 20px;
+            box-shadow: 0 6px 0 rgba(0,0,0,0.35), 0 0 0 100vmax rgba(0,0,0,0.45);
+            animation: clPop 0.18s ease-out;
+        }
+        #checklist.open { display: block; }
+        @keyframes clPop { from { transform: translate(-50%, -47%) scale(0.95); opacity: 0; } }
+        #checklist h2 {
+            margin: 0; padding: 18px 20px 16px; text-align: center; font: 15px var(--pixel); letter-spacing: 1px;
+            background: var(--gold); border-bottom: var(--line); border-radius: 17px 17px 0 0;
+        }
+        .cl-progress { display: flex; align-items: center; gap: 12px; padding: 16px 22px 6px; }
+        #checklist .cl-bar { flex: 1; height: 12px; border-radius: 99px; background: rgba(0,0,0,0.12); overflow: hidden; }
+        #checklist .cl-bar > div { height: 100%; width: 0; background: var(--green); border-radius: 99px; transition: width 0.4s; }
+        #checklist .cl-count { font: 600 15px var(--ui); color: #666; white-space: nowrap; }
+        #checklist ul { list-style: none; margin: 0; padding: 6px 14px 4px; }
+        #checklist li {
+            display: flex; align-items: center; gap: 14px; padding: 11px 10px; font: 500 18px var(--ui); line-height: 1.25;
+            border-radius: 12px;
+        }
+        #checklist li + li { border-top: 2px solid rgba(0,0,0,0.06); }
+        #checklist .cl-ico { display: none; }
+        #checklist .cl-text { flex: 1; }
+        #checklist .cl-box {
+            flex: none; width: 26px; height: 26px; box-sizing: border-box; border: var(--line); border-radius: 8px; background: #fff; position: relative;
+        }
+        #checklist li.done .cl-box { background: var(--green); }
+        #checklist li.done .cl-box::after {
+            content: ''; position: absolute; left: 6px; top: 1px; width: 6px; height: 12px;
+            border: solid #fff; border-width: 0 3px 3px 0; transform: rotate(40deg);
+        }
+        #checklist li.done .cl-text { text-decoration: line-through; color: #8a8790; }
+        #checklist li.next { background: #fff0bf; font-weight: 600; }
+        #checklist li.next + li { border-top-color: transparent; }
+        #checklist .cl-all { text-align: center; font: 600 18px var(--ui); color: #239c3a; padding: 4px 0 0; display: none; }
+        #checklist .cl-foot { text-align: center; padding: 10px 0 16px; font: 500 14px var(--ui); color: #777; }
+        /* ---- Start screen ---- */
+        #intro {
+            position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.5); transition: opacity 0.5s;
+        }
+        #intro.gone { opacity: 0; pointer-events: none; }
+        #intro .card { padding: 30px 40px 24px; text-align: center; max-width: min(92vw, 560px); border-radius: 22px; }
+        #intro h1 { margin: 0 0 4px; font: clamp(14px, 2.4vw, 22px) var(--pixel); line-height: 1.6; }
+        #intro p { margin: 6px 0; font: 500 clamp(16px, 2.6vw, 21px) var(--ui); }
+        #intro p.sub { font-size: 16px; color: #666; }
+        #intro .keys { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(2, 56px); gap: 8px; justify-content: center; margin: 18px auto 14px; }
+        #intro .key {
+            border: var(--line); border-radius: 12px; background: #fff; font: 18px var(--pixel); display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 5px 0 var(--ink); animation: keyBob 1.2s ease-in-out infinite;
+        }
+        #intro .key:nth-child(1) { grid-column: 2; grid-row: 1; animation-delay: 0s; }
+        #intro .key:nth-child(2) { grid-column: 1; grid-row: 2; animation-delay: 0.15s; }
+        #intro .key:nth-child(3) { grid-column: 2; grid-row: 2; animation-delay: 0.3s; }
+        #intro .key:nth-child(4) { grid-column: 3; grid-row: 2; animation-delay: 0.45s; }
+        @keyframes keyBob { 50% { transform: translateY(-4px); } }
+        #intro .go { margin-top: 14px; font: 9px var(--pixel); color: #a86f00; animation: blink 1.2s steps(1) infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- UI Overlay for Messages -->
+        <div id="ui-overlay" class="opacity-0"><p id="message-text"></p></div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Full-screen interior shown when you walk into a door -->
+        <div id="interior">
+            <img id="interior-img" alt="House interior">
+            <button id="interior-exit">&larr; Exit (Esc / Enter)</button>
+
+            <!-- Witches Brewery only: the three potions are clickable -->
+            <div id="potions">
+                <div class="potion" id="potion-red"   title="Red potion"></div>
+                <div class="potion" id="potion-green" title="Green potion"></div>
+                <div class="potion" id="potion-blue"  title="Blue potion"></div>
+            </div>
+            <div id="potion-hint">Click a potion to drink it</div>
+            <div id="bubble-player" class="bubble"></div>
+            <div id="bubble-witch" class="bubble"></div>
+            <div id="bubble-keeper" class="bubble"></div>
+            <div id="toast"></div>
+
+            <!-- Family home only: click a person to talk to them -->
+            <div id="family">
+                <img class="fam" id="fam-man"     data-who="man"     src="family_man.png"     alt="Man">
+                <img class="fam" id="fam-girl"    data-who="girl"    src="family_girl.png"    alt="Girl">
+                <img class="fam" id="fam-boy"     data-who="boy"     src="family_boy.png"     alt="Boy">
+                <img class="fam" id="fam-grandma" data-who="grandma" src="family_grandma.png" alt="Grandma">
+            </div>
+            <!-- Junk N' Stuff only: click a product to see its receipt -->
+            <div id="shop">
+                <img class="prod" id="prod-guitar" data-what="guitar" src="junk_guitar.png" alt="Guitar">
+                <img class="prod" id="prod-shoe"   data-what="shoe"   src="junk_shoe.png"   alt="Shoe">
+                <img class="prod" id="prod-books"  data-what="books"  src="junk_books.png"  alt="Books">
+                <img class="prod" id="prod-racket" data-what="racket" src="junk_racket.png" alt="Tennis racket">
+            </div>
+            <!-- Keagan's Room only -->
+            <div id="room">
+                <img id="keagan" src="character.png" alt="Keagan">
+                <div id="k-say"></div>
+                <div id="ask"><h3>ASK KEAGAN</h3><div id="ask-list"></div></div>
+            </div>
+            <!-- Lab only: click the computer to open "My Work" -->
+            <div id="lab"><div id="lab-pc" title="Use the computer"></div></div>
+            <div id="lab-hint">Click the computer to see Keagan's work</div>
+            <div id="work">
+                <div class="win">
+                    <div class="titlebar"><h2>MY WORK</h2><button class="xbtn" id="work-x" aria-label="Close">&#10005;</button></div>
+                    <div class="list" id="work-list"></div>
+                </div>
+            </div>
+            <div id="shop-hint">Click a product to see its price</div>
+            <div id="shop-talk">
+                <img id="shop-item" alt="">
+                <div id="receipt">
+                    <div class="r-shop">JUNK N' STUFF</div>
+                    <div class="r-sub">Everything must go!</div>
+                    <div class="r-line"></div>
+                    <div class="r-row"><span id="r-name"></span><span id="r-price"></span></div>
+                    <div class="r-desc" id="r-desc"></div>
+                    <div class="r-line"></div>
+                    <div class="r-row r-total"><span>PRICE</span><span id="r-total"></span></div>
+                    <div id="r-buy"><button id="buy-btn" type="button"></button><div id="r-have"></div></div>
+                    <div class="r-foot">** NO REFUNDS ** THANK YOU **</div>
+                </div>
+                <div id="shop-close">Click anywhere or press Esc to go back</div>
+            </div>
+            <div id="family-hint">Click a family member to talk to them</div>
+            <div id="talk">
+                <img id="talk-person" alt="">
+                <div id="talk-bubble"><span id="talk-text"></span></div>
+                <div id="talk-close">Click anywhere or press Esc to go back</div>
+            </div>
+        </div>
+
+        <div id="forest-menu">
+            <div class="card">
+                <h2>THE ANCIENT FOREST</h2>
+                <p>The trees are huge and something is moving in the branches. What do you do?</p>
+                <button class="fm-tree" id="fm-tree"><kbd>1</kbd>Climb the tree</button>
+                <button class="fm-forest" id="fm-forest"><kbd>2</kbd>Enter the forest</button>
+                <button class="fm-back" id="fm-back">Turn back (Esc)</button>
+            </div>
+        </div>
+
+        <div id="death"><span>YOU DIED</span></div>
+
+        <!-- Wild Charlie encounter (shaking bush) -->
+        <div id="encounter">
+            <img id="encounter-bg" src="encounter_bg.png" alt="">
+            <div id="charlie"><img src="charlie_photo.png" alt="Charlie"></div>
+            <div id="encounter-flash"></div>
+            <div id="encounter-box"><div id="encounter-text"></div><div id="encounter-arrow"></div></div>
+        </div>
+        <div id="boost-hud"></div>
+
+        <!-- Coins, hotbar, chase -->
+        <div id="music-btn" class="hud-card" title="Music on/off (M)">MUSIC: ON (M)</div>
+        <div id="coin-hud" class="hud-card"><span class="coin-ico"></span><span id="coin-count">0</span></div>
+        <div id="hotbar"></div>
+        <div id="slot-name"></div>
+        <div id="chase-hud" class="hud-card"></div>
+        <div id="banner"></div>
+
+        <!-- Checklist (press I) -->
+        <div id="objective" class="hud-card" title="Open checklist (I)">
+            <div class="ob-head"><span class="ob-label" id="ob-label">NEXT GOAL</span><span id="checklist-btn"><kbd>I</kbd><span id="checklist-count"></span></span></div>
+            <div id="ob-text"></div>
+            <div class="ob-bar"><div id="ob-fill"></div></div>
+        </div>
+        <div id="intro">
+            <div class="card hud-card">
+                <h1>Welcome to<br>Keagan's Town!</h1>
+                <div class="keys"><div class="key">W</div><div class="key">A</div><div class="key">S</div><div class="key">D</div></div>
+                <p>Use <b>W A S D</b> to move around and explore!</p>
+                <p class="sub">Walk into doors to go inside, collect coins, and press <span class="k">I</span> for your checklist.</p>
+                <div class="go">PRESS ANY KEY TO START</div>
+            </div>
+        </div>
+        <div id="checklist">
+            <h2>TO-DO LIST</h2>
+            <div class="cl-progress"><div class="cl-bar"><div id="cl-fill"></div></div><div class="cl-count" id="cl-count"></div></div>
+            <ul id="cl-list"></ul>
+            <div class="cl-all" id="cl-all">All done! You've found everything!</div>
+            <div class="cl-foot">Press I or Esc to close</div>
+        </div>
+        <div id="quest-toast" class="hud-card"></div>
+
+        <!-- On-screen controls for Touch Devices -->
+        <div id="d-pad">
+            <div id="btn-up" class="d-btn" data-key="ArrowUp">↑</div>
+            <div id="btn-left" class="d-btn" data-key="ArrowLeft">←</div>
+            <div id="btn-down" class="d-btn" data-key="ArrowDown">↓</div>
+            <div id="btn-right" class="d-btn" data-key="ArrowRight">→</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiOverlay = document.getElementById('ui-overlay');
+        const messageText = document.getElementById('message-text');
+
+        const playerImg = new Image();
+        playerImg.src = 'character.png';
+
+        // Hand-drawn art assets
+        function loadImg(src) { const i = new Image(); i.src = src; return i; }
+        const cottageImg = loadImg('house_cottage.png');
+        const roomHouseImg = loadImg('house_room.png');
+        const treesImg = loadImg('trees_top.png');
+        const witchImg = loadImg('house_witch.png');
+        const junkImg = loadImg('house_junk.png');
+        const labImg = loadImg('house_lab.png');
+        const fountainImg = loadImg('fountain.png');
+        const lampImg = loadImg('lamp.png');
+        const bushImg = loadImg('bush.png');
+        const tuftImg = loadImg('tuft.png');
+        const flowersImg = loadImg('flowers.png');
+        const benchImg = loadImg('bench.png');
+        const pavementImg = loadImg('pavement_tile.png');
+        let pavementPattern = null;
+        pavementImg.onload = () => { pavementPattern = ctx.createPattern(pavementImg, 'repeat'); };
+
+        // Virtual World Bounds (much larger than the screen)
+        const WORLD_WIDTH = 1850;
+        const WORLD_HEIGHT = 1740;
+
+        // Resize canvas to fill window
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const keys = {
+            up: false, left: false, down: false, right: false
+        };
+
+        const player = {
+            x: 1085 - 50,
+            y: 1180, // Spawn safely below the fountain
+            w: 100, // Increased width for the image sprite
+            h: 120, // Increased height for the image sprite
+            speed: 5,
+            isMoving: false, // Track movement for the waddle animation
+            facingLeft: false // Track which way the player is facing
+        };
+
+        const camera = {
+            x: 0,
+            y: 0
+        };
+
+        const forest = { x: 0, y: 0, w: WORLD_WIDTH, h: 250, color: '#2c5e1a' };
+        
+        const fountain = { x: 1085, y: 1000, r: 60, color: '#3498db', outline: '#2980b9' };
+
+        // Spread out 5 houses
+        const houses = [
+            // doorFrac = where the door sits across the sprite (0 = left edge, 1 = right edge)
+            { id: 1, name: "Junk N' Stuff",   x: 485,  y: 1300,  w: 160, h: 120, color: '#8e44ad', roof: '#732d91', img: junkImg,    spriteW: 240, doorFrac: 0.741, interior: 'interior_junk_empty.png' },
+            { id: 2, name: "The Lab",          x: 1525, y: 1300,  w: 160, h: 120, color: '#e67e22', roof: '#d35400', img: labImg,     spriteW: 250, doorFrac: 0.527, interior: 'interior_lab.png' },
+            { id: 3, name: "Keagan's Room",      x: 485,  y: 500, w: 160, h: 120, color: '#f1c40f', roof: '#f39c12', img: roomHouseImg, spriteW: 235, doorFrac: 0.443, interior: 'interior_room.png' },
+            { id: 4, name: "Family Home",      x: 1525, y: 500, w: 160, h: 120, color: '#16a085', roof: '#1abc9c', img: cottageImg, spriteW: 190, doorFrac: 0.5,   interior: 'interior_family_empty.png' },
+            { id: 5, name: "Witches Brewery",  x: 185,  y: 900,  w: 160, h: 120, color: '#e84393', roof: '#d63031', img: witchImg,   spriteW: 230, doorFrac: 0.5,   interior: 'interior_witch.png' }
+        ];
+        // Make every house 40% bigger (keeps each house's centre and its bottom edge / door line in place)
+        const HOUSE_SCALE = 1.4;
+        const HOUSE_RATIO = { 1: 318 / 460, 2: 462 / 500, 3: 830 / 800, 4: 466 / 380, 5: 607 / 460 };   // sprite height / width
+        houses.forEach(h => {
+            const cx = h.x + h.w / 2, bottom = h.y + h.h;
+            h.w *= HOUSE_SCALE; h.h *= HOUSE_SCALE; h.spriteW *= HOUSE_SCALE;
+            h.x = cx - h.w / 2; h.y = bottom - h.h;
+        });
+
+        // Solid (collision) area of each house = the base of its sprite
+        houses.forEach(h => {
+            const hw = Math.round(h.spriteW * 0.85);
+            h.hit = { x: h.x + h.w / 2 - hw / 2, y: h.y, w: hw, h: h.h };
+        });
+
+        // Decorations: x = centre, y = ground line (bottom of the sprite), w = drawn width
+        // hitW / hitH = the small solid area at the base that the player can't walk through
+        const props = [
+            // Lamp posts beside the main paths
+            { img: lampImg, x: 1020, y: 560,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1150, y: 560,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1020, y: 840,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1150, y: 840,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1020, y: 1330, w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1150, y: 1330, w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 785,  y: 612,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1385, y: 612,  w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 785,  y: 1412, w: 52, hitW: 18, hitH: 10 },
+            { img: lampImg, x: 1385, y: 1412, w: 52, hitW: 18, hitH: 10 },
+            // Benches on the grass facing the paths
+            { img: benchImg, x: 895, y: 800,  w: 120, hitW: 96, hitH: 12 },
+            { img: benchImg, x: 1275, y: 800,  w: 120, hitW: 96, hitH: 12 },
+            { img: benchImg, x: 925, y: 1250, w: 120, hitW: 96, hitH: 12 },
+            { img: benchImg, x: 1245, y: 1250, w: 120, hitW: 96, hitH: 12 }
+        ];
+        props.forEach(pr => {
+            pr.hit = { x: pr.x - pr.hitW / 2, y: pr.y - pr.hitH, w: pr.hitW, h: pr.hitH };
+        });
+
+        // Pathways definitions (x, y, w, h)
+        const pathColor = '#a39b8c'; // Dirt/Cobblestone base color
+        const pathWidth = 80;
+        const paths = [
+            // Main Vertical (from forest edge to bottom of town)
+            { x: 1085 - pathWidth/2, y: 200, w: pathWidth, h: 1400 },
+            // Main Horizontal Top (Connecting House 1 and 2 to center)
+            { x: 565, y: 620, w: 1040, h: pathWidth },
+            // Main Horizontal Bottom (Connecting House 3 and 4 to center)
+            { x: 565, y: 1420, w: 1040, h: pathWidth },
+            // Branch to House 5
+            { x: 265, y: 1020, w: 800, h: pathWidth }
+        ];
+
+
+        // Door Triggers (a small zone right in front of each door)
+        const doors = houses.map(house => ({
+            houseId: house.id,
+            x: house.x + house.w / 2 - house.spriteW / 2 + house.doorFrac * house.spriteW - 25,
+            y: house.y + house.h,
+            w: 50,
+            h: 24
+        }));
+
+        // ---------- Scattered grass decorations (seeded, so the map is the same every time) ----------
+        function mulberry32(a) {
+            return function () {
+                a |= 0; a = a + 0x6D2B79F5 | 0;
+                let t = Math.imul(a ^ a >>> 15, 1 | a);
+                t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            };
+        }
+        const rnd = mulberry32(2024);
+
+        function nearPath(x, y, pad) {
+            return paths.some(p => x > p.x - pad && x < p.x + p.w + pad && y > p.y - pad && y < p.y + p.h + pad);
+        }
+        function blocked(x, y, pathPad, spacing) {
+            if (y < 290) return true;                                        // forest strip
+            if (nearPath(x, y, pathPad)) return true;                        // paths
+            for (const h of houses) {                                        // houses (whole sprite)
+                const sw = h.spriteW, sh = sw * HOUSE_RATIO[h.id], cx = h.x + h.w / 2;
+                if (x > cx - sw / 2 - 50 && x < cx + sw / 2 + 50 && y > h.y + h.h - sh - 20 && y < h.y + h.h + 70) return true;
+            }
+            if (Math.hypot(x - fountain.x, y - fountain.y) < fountain.r + 80) return true;   // fountain
+            for (const pr of props) {                                        // lamps, benches, bushes
+                if (Math.abs(x - pr.x) < pr.w / 2 + spacing && y < pr.y + spacing && y > pr.y - 110) return true;
+            }
+            if (Math.abs(x - (player.x + player.w / 2)) < 90 && Math.abs(y - (player.y + player.h)) < 60) return true; // spawn
+            return false;
+        }
+
+        // A few bushes (solid, sorted with the player like the houses)
+        let bushTries = 0, bushCount = 0;
+        while (bushCount < 12 && bushTries < 2000) {
+            bushTries++;
+            const x = 60 + rnd() * (WORLD_WIDTH - 120);
+            const y = 330 + rnd() * (WORLD_HEIGHT - 400);
+            if (blocked(x, y, 60, 90)) continue;
+            const w = 80 + rnd() * 40;
+            props.push({ isBush: true, img: bushImg, x: x, y: y, w: w, hit: { x: x - w * 0.32, y: y - 12, w: w * 0.64, h: 12 } });
+            bushCount++;
+        }
+
+        // Keep the approach to every door clear of bushes
+        for (let i = props.length - 1; i >= 0; i--) {
+            const pr = props[i];
+            if (!pr.isBush) continue;
+            if (doors.some(d => {
+                const house = houses.find(h => h.id === d.houseId);
+                return Math.abs(pr.x - (d.x + d.w / 2)) < 120 && pr.y > house.y + house.h - 20 && pr.y < house.y + house.h + 320;
+            })) props.splice(i, 1);
+        }
+
+        // The shaking bush: a wild Charlie is hiding in the bush closest to this spot (near the start)
+        let charlieBush = null;
+        {
+            let best = 1e9;
+            for (const pr of props) {
+                if (!pr.isBush) continue;
+                const d = Math.hypot(pr.x - 1380, pr.y - 1180);
+                if (d < best) { best = d; charlieBush = pr; }
+            }
+            if (charlieBush) charlieBush.zone = { x: charlieBush.hit.x - 10, y: charlieBush.hit.y - 12, w: charlieBush.hit.w + 20, h: charlieBush.hit.h + 24 };
+        }
+
+        // ---------- The guy lying in the grass + coins (generated AFTER everything else so the layout never changes) ----------
+        const manIdleImg = new Image(); manIdleImg.src = 'man_idle.png';
+        const poseImgs = {}, partImgs = {};
+        ['guitar', 'racket', 'charlie', 'books'].forEach(k => { const im = new Image(); im.src = 'man_pose_' + k + '.png'; poseImgs[k] = im; });
+        ['guitar', 'racket'].forEach(k => { const im = new Image(); im.src = 'man_arm_' + k + '.png'; partImgs[k] = im; });
+        partImgs.ball = new Image(); partImgs.ball.src = 'ball.png';
+        const itemImgs = {};
+        ['guitar', 'books', 'shoe', 'racket'].forEach(k => { const im = new Image(); im.src = 'junk_' + k + '.png'; itemImgs[k] = im; });
+        const charlieIconImg = new Image(); charlieIconImg.src = 'charlie_photo.png';
+        const okImg = im => im && im.complete && im.naturalWidth > 0;
+        const rnd2 = mulberry32(777);   // separate random stream so the existing world layout never shifts
+        let man = null;
+        {
+            const cands = [[1650, 1000], [1650, 760], [200, 1500], [1700, 1450], [900, 1550], [1600, 1300]];
+            for (let t = 0; t < 400 && !man; t++) {
+                const c = t < cands.length ? cands[t] : [150 + rnd2() * (WORLD_WIDTH - 300), 400 + rnd2() * (WORLD_HEIGHT - 500)];
+                if (!blocked(c[0], c[1], 90, 110)) {
+                    const w = 170;
+                    man = { isMan: true, x: c[0], y: c[1], w: w, img: manIdleImg, hit: { x: c[0] - 70, y: c[1] - 14, w: 140, h: 14 }, draw: drawMan };
+                }
+            }
+            if (man) props.push(man);
+        }
+        let manHeld = null;              // what he's holding: null | guitar | books | racket | charlie
+        let manBubble = null;            // { text, until }
+        const coinItems = [];
+        {
+            let tries = 0;
+            while (coinItems.length < 13 && tries < 4000) {
+                tries++;
+                const x = 50 + rnd2() * (WORLD_WIDTH - 100), y = 330 + rnd2() * (WORLD_HEIGHT - 400);
+                if (blocked(x, y, 40, 30)) continue;
+                if (coinItems.some(c => Math.hypot(c.x - x, c.y - y) < 90)) continue;
+                if (man && Math.hypot(man.x - x, man.y - y) < 110) continue;
+                coinItems.push({ x, y, ph: rnd2() * 6.28, got: false });
+            }
+        }
+        const floaters = [];             // "+1" pop-ups
+
+        // Ground decorations (not solid): loose grass tufts, flower patches, and tufts along the path edges
+        const decor = [];
+        let dTries = 0;
+        while (decor.length < 44 && dTries < 4000) {
+            dTries++;
+            const x = 40 + rnd() * (WORLD_WIDTH - 80);
+            const y = 310 + rnd() * (WORLD_HEIGHT - 340);
+            if (blocked(x, y, 24, 20)) continue;
+            const isFlower = rnd() < 0.28;
+            decor.push({ img: isFlower ? flowersImg : tuftImg, x: x, y: y, w: isFlower ? 46 : 34 });
+        }
+        let eTries = 0, edgeCount = 0;
+        while (edgeCount < 36 && eTries < 4000) {
+            eTries++;
+            const p = paths[Math.floor(rnd() * paths.length)];
+            const vertical = p.h > p.w;
+            const side = rnd() < 0.5 ? -1 : 1;
+            const along = rnd();
+            const off = 4 + rnd() * 14;
+            let x, y;
+            if (vertical) { x = side < 0 ? p.x - off : p.x + p.w + off; y = p.y + along * p.h; }
+            else { y = side < 0 ? p.y - off + 6 : p.y + p.h + off + 6; x = p.x + along * p.w; }
+            if (nearPath(x, y, 2)) continue;           // don't put it on top of another path
+            if (blocked(x, y, -999, 14)) continue;      // (path padding disabled: we WANT it near the path)
+            decor.push({ img: tuftImg, x: x, y: y, w: 30 });
+            edgeCount++;
+        }
+        decor.sort((a, b) => a.y - b.y);
+
+        // ---------- Inside a house (full-screen interior) ----------
+        const interiorEl = document.getElementById('interior');
+        const interiorImgEl = document.getElementById('interior-img');
+        let inside = false;
+        let currentDoor = null;
+        let doorLock = false; // stops the door re-triggering until you walk away from it
+
+        // Preload every interior so the switch is instant
+        houses.forEach(h => { const i = new Image(); i.src = h.interior; });
+
+        // ---------- Witches Brewery potions ----------
+        const BASE_SPEED = 5.5;
+        const BOOST_SPEED = 13;
+        const BOOST_MS = 10000;
+        let speedBoostUntil = 0;
+        let dying = false;
+        let brewTimers = [];
+        const potionsEl = document.getElementById('potions');
+        const potionHintEl = document.getElementById('potion-hint');
+        const bubblePlayer = document.getElementById('bubble-player');
+        const bubbleWitch = document.getElementById('bubble-witch');
+        const bubbleKeeper = document.getElementById('bubble-keeper');
+        const toastEl = document.getElementById('toast');
+        const deathEl = document.getElementById('death');
+        const boostHud = document.getElementById('boost-hud');
+        const IMG_W = 1600, IMG_H = 1112; // size of the interior pictures
+
+        // Potion boxes as fractions of the picture (x, y, w, h)
+        const potionBoxes = {
+            'potion-red':   [0.465, 0.455, 0.145, 0.230],
+            'potion-green': [0.665, 0.442, 0.125, 0.240],
+            'potion-blue':  [0.840, 0.400, 0.095, 0.285]
+        };
+
+        // Where the picture sits on screen (it fills the screen like object-fit: cover, or contain on tall screens)
+        function interiorLayout() {
+            const vw = interiorEl.clientWidth, vh = interiorEl.clientHeight;
+            const contain = true;
+            const scale = contain ? Math.min(vw / IMG_W, vh / IMG_H) : Math.max(vw / IMG_W, vh / IMG_H);
+            const w = IMG_W * scale, h = IMG_H * scale;
+            return { x: (vw - w) / 2, y: (vh - h) / 2, w, h, vw, vh };
+        }
+        // ----- Family home -----
+        const famBoxes = {  // [x, y, w, h] as fractions of the interior picture
+            man:     [0.0047, 0.2201, 0.2699, 0.5201],
+            girl:    [0.2784, 0.2585, 0.2534, 0.4768],
+            boy:     [0.5492, 0.2567, 0.2089, 0.4689],
+            grandma: [0.7801, 0.3854, 0.2199, 0.3421]
+        };
+        const famEl = document.getElementById('family');
+        const famHintEl = document.getElementById('family-hint');
+        const talkEl = document.getElementById('talk');
+        const talkPersonEl = document.getElementById('talk-person');
+        const talkTextEl = document.getElementById('talk-text');
+        // Fill these in later: who they are + what they are to you
+        const famText = {
+            man: "Hi, I'm Lourens. I'm Keagan's dad. Make yourself at home!",
+            girl: "Hello there, I'm Devon, Keagan's mom. Have you eaten yet?",
+            boy: "Hey, I'm Ross, Keagan's brother. Don't touch my stuff.",
+            grandma: "Hello dear, I'm Gaga, Keagan's gran. Come give me a hug!"
+        };
+        let talking = false;
+        function layoutFamily() {
+            const L = interiorLayout();
+            for (const k in famBoxes) {
+                const b = famBoxes[k], el = document.getElementById('fam-' + k);
+                el.style.left = (L.x + b[0] * L.w) + 'px';
+                el.style.top = (L.y + b[1] * L.h) + 'px';
+                el.style.width = (b[2] * L.w) + 'px';
+                el.style.height = (b[3] * L.h) + 'px';
+            }
+        }
+        const metFam = new Set();
+        function startTalk(who) {
+            talking = true;
+            metFam.add(who); if (metFam.size >= 4) completeQuest('family');
+            talkPersonEl.src = 'family_' + who + '.png';
+            talkTextEl.textContent = famText[who] || '';
+            famEl.style.visibility = 'hidden';   // everyone else steps out of the way
+            famHintEl.classList.remove('active');
+            talkEl.classList.add('show');
+        }
+        function endTalk() {
+            if (!talking) return;
+            talking = false;
+            talkEl.classList.remove('show');
+            famEl.style.visibility = '';
+            famHintEl.classList.add('active');
+        }
+        document.querySelectorAll('.fam').forEach(el =>
+            el.addEventListener('click', (e) => { e.stopPropagation(); startTalk(el.dataset.who); }));
+        talkEl.addEventListener('click', (e) => { e.stopPropagation(); endTalk(); });
+        window.addEventListener('resize', () => { if (inside) layoutFamily(); });
+
+        // ----- Keagan's Room -----
+        const ROOM_QA = [
+            ['Where are you from?', "I live and study in Pretoria, South Africa. Welcome to my room!"],
+            ['What do you study?', "Multimedia at university. I get to draw, design and code, which is basically this whole town."],
+            ['What coding languages do you know?', "C++ for my design patterns module, HTML, CSS and JavaScript for the web, and a bit of x86-64 assembly."],
+            ['Did you make this game?', "Yep! Every drawing in this town is hand-drawn, and the code is one HTML file."],
+            ['Do you have any pets?', "Charlie, my three-legged cat. Yes, he is the one you chase around town."],
+            ['Who lives in the family home?', "My dad Lourens, mom Devon, brother Ross and my gran, Gaga. Go say hi!"]
+        ];
+        const roomEl = document.getElementById('room'), keaEl = document.getElementById('keagan');
+        const saidEl = document.getElementById('k-say'), askEl = document.getElementById('ask');
+        let typeTimer = null;
+        function kSay(text) {
+            clearInterval(typeTimer);
+            saidEl.classList.add('show');
+            let i = 0; saidEl.textContent = '';
+            typeTimer = setInterval(() => { saidEl.textContent = text.slice(0, ++i); if (i >= text.length) clearInterval(typeTimer); }, 22);
+        }
+        const askList = document.getElementById('ask-list');
+        ROOM_QA.forEach(([q, a]) => {
+            const b = document.createElement('button'); b.textContent = q;
+            b.addEventListener('click', (e) => { e.stopPropagation(); b.classList.add('asked'); kSay(a); completeQuest('room'); });
+            askList.appendChild(b);
+        });
+        let roomEntered = false;
+        function layoutRoom() {
+            const L = interiorLayout();
+            const h = 0.68 * L.h, w = h * (keaEl.naturalWidth && keaEl.naturalHeight ? keaEl.naturalWidth / keaEl.naturalHeight : 0.6);
+            keaEl.style.height = h + 'px'; keaEl.style.width = w + 'px';
+            keaEl.style.top = (L.y + L.h - h + 0.02 * L.h) + 'px';
+            keaEl.style.left = roomEntered ? (L.x + 0.06 * L.w) + 'px' : (L.x - w - 20) + 'px';
+            saidEl.style.left = (L.x + 0.06 * L.w + w + 14) + 'px';
+            saidEl.style.top = (L.y + 0.10 * L.h) + 'px';
+            askEl.style.left = (L.x + 0.55 * L.w) + 'px';
+            askEl.style.top = (L.y + 0.30 * L.h) + 'px';
+            askEl.style.width = (0.41 * L.w) + 'px';
+        }
+        function enterRoom() {
+            roomEntered = false; clearInterval(typeTimer);
+            saidEl.classList.remove('show'); askEl.classList.remove('show');
+            askList.querySelectorAll('button').forEach(b => b.classList.remove('asked'));
+            keaEl.style.transition = 'none';
+            layoutRoom();
+            void keaEl.offsetWidth;   // commit the off-screen start before animating
+            keaEl.classList.add('walking');
+            later(() => { roomEntered = true; keaEl.style.transition = 'left 1.5s cubic-bezier(.3,.7,.3,1)'; layoutRoom(); }, 450);
+            later(() => { keaEl.classList.remove('walking'); kSay("Hey! I'm Keagan. Ask me anything."); askEl.classList.add('show'); }, 2100);
+        }
+        window.addEventListener('resize', () => { if (inside && roomEl.classList.contains('active')) { keaEl.style.transition = 'none'; layoutRoom(); } });
+
+        // ----- Junk N' Stuff -----
+        const prodBoxes = {  // [x, y, w, h] as fractions of the interior picture
+            guitar: [0.4220, 0.0323, 0.0915, 0.3171],
+            shoe:   [0.6407, 0.0506, 0.1381, 0.0884],
+            books:  [0.7847, 0.1750, 0.1038, 0.0738],
+            racket: [0.6775, 0.2701, 0.2136, 0.1067]
+        };
+        // Placeholder text - change these whenever you like
+        const prodInfo = {
+            guitar: { name: 'Acoustic Guitar', price: 6,
+                desc: 'A well-loved six-string acoustic guitar that has seen more campfires than anyone can count. Slightly out of tune, slightly scratched, but it still sounds warm and a little bit magical. Maybe someone out in the grass could use a tune?' },
+            shoe:   { name: 'Asics Running Shoe', price: 5,
+                desc: 'A grey Asics running shoe with an orange stripe. Hold SHIFT to run much faster around town while you walk at your normal pace otherwise! Sold as a single shoe, so ideal for hopping, collecting, or looking confused at parties.' },
+            books:  { name: 'Book Stack (x3)', price: 4,
+                desc: 'Three heavy-hitting reads sold as one tower: The Brothers Karamazov, Project Hail Mary and Crime and Punishment. Light bedtime reading it is not. Someone lying in the grass looks like they could use a good story.' },
+            racket: { name: 'Vintage Tennis Racket', price: 3,
+                desc: 'A bright red tennis racket with strings that still have plenty of bounce. Great for tennis, swatting flies, or air-guitar solos. No ball included. We are not responsible for any lost matches, sore wrists or smashed windows.' }
+        };
+        const shopEl = document.getElementById('shop');
+        const shopHintEl = document.getElementById('shop-hint');
+        const shopTalkEl = document.getElementById('shop-talk');
+        let shopTalking = false;
+        let currentProd = null;
+        const SLOT_ORDER = ['guitar', 'books', 'shoe', 'racket', 'charlie'];
+        const bought = { guitar: false, books: false, shoe: false, racket: false };
+        let selSlot = 0;
+        const inventory = { guitar: false, books: false, shoe: false, racket: false, charlie: false };
+        let coins = 0;
+        // price tags that float under each product on the shelf
+        Object.keys(prodBoxes).forEach(k => {
+            const t = document.createElement('div');
+            t.className = 'ptag'; t.id = 'tag-' + k;
+            t.innerHTML = '<span class="coin-ico"></span><span class="tv"></span>';
+            shopEl.appendChild(t);
+        });
+        function refreshShop() {
+            for (const k in prodBoxes) {
+                const prodEl = document.getElementById('prod-' + k), tag = document.getElementById('tag-' + k);
+                const owned = bought[k];
+                prodEl.style.display = owned ? 'none' : '';
+                tag.style.display = owned ? 'none' : 'flex';
+                tag.querySelector('.tv').textContent = prodInfo[k].price;
+                const ok = coins >= prodInfo[k].price;
+                tag.classList.toggle('ok', ok);
+                tag.classList.toggle('low', !ok);
+            }
+            updateBuyUI();
+        }
+        function updateBuyUI() {
+            const btn = document.getElementById('buy-btn'), have = document.getElementById('r-have');
+            if (!currentProd) return;
+            const price = prodInfo[currentProd].price;
+            btn.classList.remove('low', 'owned');
+            if (bought[currentProd]) { btn.textContent = 'BOUGHT \u2714'; btn.classList.add('owned'); }
+            else if (coins >= price) { btn.textContent = 'BUY  (' + price + ' coins)'; }
+            else { btn.textContent = 'Need ' + (price - coins) + ' more coin' + (price - coins === 1 ? '' : 's'); btn.classList.add('low'); }
+            have.textContent = 'You have ' + coins + ' coin' + (coins === 1 ? '' : 's');
+        }
+        function buyItem() {
+            if (!currentProd || bought[currentProd]) return;
+            const price = prodInfo[currentProd].price;
+            if (coins < price) { sfx('no'); return; }
+            coins -= price;
+            inventory[currentProd] = true; bought[currentProd] = true;
+            sfx('buy');
+            updateCoinHud(); renderHotbar(); refreshShop();
+            completeQuest('shop');
+            popToast('Bought: ' + prodInfo[currentProd].name + (currentProd === 'shoe' ? '  (you are faster now!)' : '  (check your hotbar)'));
+        }
+        document.getElementById('buy-btn').addEventListener('click', (e) => { e.stopPropagation(); buyItem(); });
+        function layoutShop() {
+            const L = interiorLayout();
+            for (const k in prodBoxes) {
+                const b = prodBoxes[k], el = document.getElementById('prod-' + k);
+                el.style.left = (L.x + b[0] * L.w) + 'px';
+                el.style.top = (L.y + b[1] * L.h) + 'px';
+                el.style.width = (b[2] * L.w) + 'px';
+                el.style.height = (b[3] * L.h) + 'px';
+                const tag = document.getElementById('tag-' + k);
+                tag.style.left = (L.x + (b[0] + b[2] / 2) * L.w) + 'px';
+                tag.style.top = (L.y + (b[1] + b[3]) * L.h + 6) + 'px';
+            }
+        }
+        function placeKeeperBubble(fx = 0.385, fy = 0.40) {
+            const L = interiorLayout();
+            bubbleKeeper.style.left = (L.x + fx * L.w) + 'px';
+            bubbleKeeper.style.top = (L.y + fy * L.h) + 'px';
+        }
+        // Show a line of speech in a bubble for a while: steps = [[text, ms], ...]
+        function sayLines(el, steps, startDelay) {
+            let t = startDelay;
+            steps.forEach(([text, ms], i) => {
+                later(() => { el.textContent = text; el.classList.add('show'); }, t);
+                t += ms;
+                if (i === steps.length - 1) later(() => el.classList.remove('show'), t);
+            });
+        }
+        function startShop(what) {
+            const info = prodInfo[what];
+            shopTalking = true;
+            document.getElementById('shop-item').src = 'junk_' + what + '.png';
+            document.getElementById('r-name').textContent = info.name;
+            currentProd = what;
+            document.getElementById('r-price').textContent = info.price + ' coins';
+            document.getElementById('r-desc').textContent = info.desc;
+            document.getElementById('r-total').textContent = info.price + ' coins';
+            updateBuyUI();
+            shopEl.style.visibility = 'hidden';
+            shopHintEl.classList.remove('active');
+            shopTalkEl.classList.add('show');
+        }
+        function endShop() {
+            if (!shopTalking) return;
+            shopTalking = false;
+            shopTalkEl.classList.remove('show');
+            shopEl.style.visibility = '';
+            shopHintEl.classList.add('active');
+        }
+        document.querySelectorAll('.prod').forEach(el =>
+            el.addEventListener('click', (e) => { e.stopPropagation(); startShop(el.dataset.what); }));
+        shopTalkEl.addEventListener('click', (e) => { e.stopPropagation(); endShop(); });
+        window.addEventListener('resize', () => { if (inside) layoutShop(); });
+
+
+        // ---- Lab computer: "My Work" download menu ----
+        const WORK = [
+            { n: 'Practical 1', t: 'Kudu Freight Pipeline', d: 'C++ data pipeline using Factory and Memento (checkpoints), with the theory answers.', tag: 'C++',
+              f: [['Source code', 'prac1-source.zip', 'zip'], ['Theory answers', 'prac1-theory.pdf', 'pdf']] },
+            { n: 'Practical 2', t: 'Wayfarer', d: 'Travel game built from Builder, Decorator, Strategy and State.', tag: 'C++',
+              f: [['Source code', 'prac2-source.zip', 'zip']] },
+            { n: 'Practical 3', t: 'EventFlow Festival', d: 'Festival simulation using Composite and Observer, plus the class diagram.', tag: 'C++',
+              f: [['Source code', 'prac3-source.zip', 'zip'], ['UML diagram', 'prac3-uml.pdf', 'pdf']] },
+            { n: 'Practical 4', t: 'TaskForge', d: 'Emergency dispatch system with iterators, states and response teams.', tag: 'C++',
+              f: [['Source code', 'prac4-source.zip', 'zip']] },
+            { n: 'Practical 5', t: 'CampusGuard', d: 'Campus incident system: Command, State, Adapter and Mediator.', tag: 'C++',
+              f: [['Source code', 'prac5-source.zip', 'zip'], ['Design plan', 'prac5-plan.pdf', 'pdf'], ['Sequence diagram', 'prac5-sequence.png', 'png']] },
+            { n: 'Practical 6', t: 'TIVIDY System', d: 'System design: the full UML diagram.', tag: 'UML',
+              f: [['UML diagram', 'prac6-tividy.jpg', 'jpg']] }
+        ];
+        const FILE_ICO = { zip: '\uD83D\uDCE6', pdf: '\uD83D\uDCC4', png: '\uD83D\uDDBC\uFE0F', jpg: '\uD83D\uDDBC\uFE0F' };
+        const labEl = document.getElementById('lab'), labHintEl = document.getElementById('lab-hint');
+        const labPc = document.getElementById('lab-pc'), workEl = document.getElementById('work');
+        let workOpen = false;
+        document.getElementById('work-list').innerHTML = WORK.map(p =>
+            '<div class="prac"><div class="prac-head"><b>' + p.n + ' \u2013 ' + p.t +
+            '</b></div><p>' + p.d + '</p><div class="files">' +
+            p.f.map(f => '<a class="file" href="work/' + f[1] + '" download="' + f[1] + '">' + f[0] +
+                ' <small>.' + f[2] + '</small></a>').join('') + '</div></div>').join('');
+        function layoutLab() {
+            const L = interiorLayout();
+            labPc.style.left = (L.x + 0.575 * L.w) + 'px';
+            labPc.style.top = (L.y + 0.195 * L.h) + 'px';
+            labPc.style.width = (0.23 * L.w) + 'px';
+            labPc.style.height = (0.33 * L.h) + 'px';
+        }
+        function openWork() {
+            workOpen = true; completeQuest('lab');
+            workEl.classList.add('show');
+            labHintEl.classList.remove('active');
+        }
+        function closeWork() {
+            if (!workOpen) return;
+            workOpen = false;
+            workEl.classList.remove('show');
+            if (inside) labHintEl.classList.add('active');
+        }
+        labPc.addEventListener('click', (e) => { e.stopPropagation(); openWork(); });
+        document.getElementById('work-x').addEventListener('click', (e) => { e.stopPropagation(); closeWork(); });
+        workEl.addEventListener('click', (e) => { if (e.target === workEl) { e.stopPropagation(); closeWork(); } });
+        window.addEventListener('resize', () => { if (inside) layoutLab(); });
+
+        function layoutPotions() {
+            const L = interiorLayout();
+            for (const id in potionBoxes) {
+                const b = potionBoxes[id], el = document.getElementById(id);
+                el.style.left = (L.x + b[0] * L.w) + 'px';
+                el.style.top = (L.y + b[1] * L.h) + 'px';
+                el.style.width = (b[2] * L.w) + 'px';
+                el.style.height = (b[3] * L.h) + 'px';
+            }
+            // Witch's speech bubble sits on the counter under her, clamped so it stays on screen
+            bubbleWitch.style.left = Math.max(16, L.x + 0.07 * L.w) + 'px';
+            bubbleWitch.style.top = Math.min(L.y + 0.76 * L.h, L.vh - 130) + 'px';
+        }
+        window.addEventListener('resize', () => { if (inside) layoutPotions(); });
+
+        function later(fn, ms) { brewTimers.push(setTimeout(fn, ms)); }
+        function clearBrew() {
+            brewTimers.forEach(clearTimeout);
+            brewTimers = [];
+            bubblePlayer.classList.remove('show');
+            bubbleWitch.classList.remove('show');
+            bubbleKeeper.classList.remove('show');
+            toastEl.classList.remove('show');
+        }
+        function showToast(text, ms) {
+            toastEl.textContent = text;
+            toastEl.classList.add('show');
+            later(() => toastEl.classList.remove('show'), ms);
+        }
+
+        function drinkRed() {
+            speedBoostUntil = Date.now() + BOOST_MS;
+            clearBrew();
+            showToast('\u26A1 Speed boost! (10 seconds)', 3000);
+        }
+
+        function drinkGreen() {
+            if (dying) return;
+            dying = true;
+            clearBrew();
+            speedBoostUntil = 0;
+            deathEl.classList.add('show');
+            setTimeout(() => {
+                // Respawn at the fountain (just south of it)
+                inside = false;
+                interiorEl.classList.remove('open');
+                potionsEl.classList.remove('active');
+                potionHintEl.classList.remove('active');
+                player.x = fountain.x - player.w / 2;
+                player.y = fountain.y + 60;
+                doorLock = true;
+                deathEl.classList.remove('show');
+                dying = false;
+            }, 2800);
+        }
+
+        function drinkBlue() {
+            clearBrew();
+            bubblePlayer.textContent = 'This is just water';
+            bubblePlayer.classList.add('show');
+            later(() => bubblePlayer.classList.remove('show'), 2300);
+            later(() => {
+                bubbleWitch.textContent = 'Always stay hydrated';
+                bubbleWitch.classList.add('show');
+            }, 2600);
+            later(() => bubbleWitch.classList.remove('show'), 5200);
+        }
+
+        document.getElementById('potion-red').addEventListener('click', (e) => { e.stopPropagation(); if (!dying) drinkRed(); });
+        document.getElementById('potion-green').addEventListener('click', (e) => { e.stopPropagation(); drinkGreen(); });
+        document.getElementById('potion-blue').addEventListener('click', (e) => { e.stopPropagation(); if (!dying) drinkBlue(); });
+
+        // ----- Checklist -----
+        const quests = [
+            { id: 'family', ico: '🏠',  text: "Meet the whole family",                          done: false },
+            { id: 'room', ico: '🛏️',    text: "Visit Keagan's room and ask him something",      done: false },
+            { id: 'lab', ico: '💻',     text: "Use the lab computer to see Keagan's work",      done: false },
+            { id: 'junk', ico: '🛒',    text: "Find Keagan's interests at Junk N' Stuff",       done: false },
+            { id: 'witch', ico: '🧪',   text: 'Visit the Witches Brewery (if you dare)',        done: false },
+            { id: 'charlie', ico: '🐾', text: 'Find the mysterious monster hiding in the bushes', done: false },
+            { id: 'catch', ico: '🏃',   text: 'Catch Charlie before he runs away!',             done: false },
+            { id: 'shop', ico: '🪙',    text: "Buy something at Junk N' Stuff (collect coins!)", done: false },
+            { id: 'gift', ico: '🎸',    text: 'Cheer up the guy lying in the grass',            done: false },
+            { id: 'forest', ico: '🌲',  text: 'Walk up to the Ancient Forest',                  done: false },
+            { id: 'comic', ico: '📖',   text: "Read one of Keagan's comics",                    done: false }
+        ];
+        const houseQuest = { 1: 'junk', 5: 'witch' };
+        const checklistEl = document.getElementById('checklist');
+        const clListEl = document.getElementById('cl-list');
+        const questToastEl = document.getElementById('quest-toast');
+        let questToastTimer = null;
+        function renderChecklist() {
+            clListEl.innerHTML = '';
+            quests.forEach(q => {
+                const li = document.createElement('li');
+                if (q.done) li.className = 'done';
+                li.innerHTML = '<span class="cl-box"></span><span class="cl-ico"></span><span class="cl-text"></span>';
+                li.querySelector('.cl-text').textContent = q.text;
+                li.querySelector('.cl-ico').textContent = q.ico || '';
+                if (!q.done && q === quests.find(x => !x.done)) li.classList.add('next');
+                clListEl.appendChild(li);
+            });
+            const n = quests.filter(q => q.done).length;
+            document.getElementById('cl-count').textContent = n + ' / ' + quests.length + ' done';
+            document.getElementById('cl-fill').style.width = (100 * n / quests.length) + '%';
+            const nx = quests.find(x => !x.done), ob = document.getElementById('objective');
+            document.getElementById('ob-label').textContent = nx ? 'NEXT GOAL' : 'ALL DONE!';
+            document.getElementById('ob-text').textContent = nx ? nx.text : 'You found everything!';
+            document.getElementById('ob-fill').style.width = (100 * n / quests.length) + '%';
+            document.getElementById('checklist-count').textContent = n + ' / ' + quests.length;
+            document.getElementById('cl-all').style.display = n === quests.length ? 'block' : 'none';
+        }
+        function completeQuest(id) {
+            const q = quests.find(q => q.id === id);
+            if (!q || q.done) return;
+            q.done = true;
+            renderChecklist();
+            if (inside) { pendingQuestToasts.push('\u2714 ' + q.text); return; }   // show it once you're back outside
+            questToastEl.textContent = '\u2714 ' + q.text;
+            questToastEl.classList.add('show');
+            clearTimeout(questToastTimer);
+            questToastTimer = setTimeout(() => questToastEl.classList.remove('show'), 3200);
+        }
+        const pendingQuestToasts = [];
+        function flushQuestToasts() {
+            if (!pendingQuestToasts.length) return;
+            const t = pendingQuestToasts.splice(0).join('   ');
+            questToastEl.textContent = t;
+            questToastEl.classList.add('show');
+            clearTimeout(questToastTimer);
+            questToastTimer = setTimeout(() => questToastEl.classList.remove('show'), 3600);
+        }
+        function toggleChecklist() { checklistEl.classList.toggle('open'); document.getElementById('objective').classList.add('seen'); }
+        document.getElementById('objective').addEventListener('click', (e) => { e.stopPropagation(); toggleChecklist(); });
+        renderChecklist();
+
+        // ----- Wild Charlie encounter -----
+        let bushLock = false;
+        let encounterOn = false, encounterReady = false, encTimer = null, encTyping = false, encPage = 0, encFull = '';
+        const encounterEl = document.getElementById('encounter');
+        const encounterFlash = document.getElementById('encounter-flash');
+        const charlieEl = document.getElementById('charlie');
+        const encTextEl = document.getElementById('encounter-text');
+        const encArrowEl = document.getElementById('encounter-arrow');
+        // Change these lines whenever you like (each entry = one text box page)
+        const encounterPages = [
+            'You have encountered a wild Charlie!',
+            'Charlie is a three-legged cat. He is missing a leg, but never his attitude.'
+        ];
+        function layoutCharlie() {
+            const vw = encounterEl.clientWidth, vh = encounterEl.clientHeight;
+            const IW = 2360, IH = 1640, sc = Math.min(vw / IW, vh / IH);
+            const w = IW * sc, h = IH * sc, x0 = (vw - w) / 2, y0 = (vh - h) / 2;
+            const ch = h * 0.46, cw = ch * 900 / 741;
+            charlieEl.style.height = ch + 'px';
+            charlieEl.style.width = cw + 'px';
+            charlieEl.style.left = (x0 + w * 0.5 - cw / 2) + 'px';
+            charlieEl.style.top = (y0 + h * 0.675 - ch) + 'px';
+        }
+        function typePage(text) {
+            encFull = text; encTyping = true;
+            encArrowEl.style.display = 'none';
+            encTextEl.textContent = '';
+            let i = 0;
+            clearInterval(encTimer);
+            encTimer = setInterval(() => {
+                i++;
+                encTextEl.textContent = encFull.slice(0, i);
+                if (i >= encFull.length) { clearInterval(encTimer); encTyping = false; encArrowEl.style.display = 'block'; }
+            }, 38);
+        }
+        function startEncounter() {
+            setMusic('battle');
+            inside = true; encounterOn = true; encounterReady = false; bushLock = true;
+            completeQuest('charlie');
+            keys.up = keys.left = keys.down = keys.right = false;
+            player.isMoving = false;
+            encPage = 0;
+            encTextEl.textContent = '';
+            encArrowEl.style.display = 'none';
+            charlieEl.className = '';
+            encounterEl.classList.add('open');
+            layoutCharlie();
+            encounterFlash.classList.remove('blink'); void encounterFlash.offsetWidth; encounterFlash.classList.add('blink');
+            setTimeout(() => { if (!encounterOn) return; charlieEl.classList.add('in'); }, 650);
+            setTimeout(() => { if (!encounterOn) return; charlieEl.classList.add('idle'); encounterReady = true; typePage(encounterPages[0]); }, 1450);
+        }
+        function advanceEncounter() {
+            if (!encounterOn || !encounterReady) return;
+            if (encTyping) {                      // finish the line instantly
+                clearInterval(encTimer); encTyping = false;
+                encTextEl.textContent = encFull; encArrowEl.style.display = 'block';
+                return;
+            }
+            encPage++;
+            if (encPage >= encounterPages.length) endEncounter(); else typePage(encounterPages[encPage]);
+        }
+        function endEncounter() {
+            if (!encounterOn) return;
+            encounterOn = false; encounterReady = false;
+            clearInterval(encTimer);
+            encounterEl.classList.remove('open');
+            inside = false;
+            flushQuestToasts();
+            if (charlieBush) {   // step back out just below the bush
+                player.x = charlieBush.x - player.w / 2;
+                player.y = charlieBush.y + 40 - player.h;
+                bushLock = true;
+            }
+            startChase();
+        }
+        encounterEl.addEventListener('click', advanceEncounter);
+        window.addEventListener('resize', () => { if (encounterOn) layoutCharlie(); });
+
+
+
+        // ---------- Music: town loop + battle track for the Charlie encounter / chase ----------
+        const musicTracks = {
+            town:   Object.assign(new Audio('music/town.mp3'),   { loop: true, preload: 'auto' }),
+            battle: Object.assign(new Audio('music/battle.mp3'), { loop: true, preload: 'auto' })
+        };
+        const musicVol = { town: 0.35, battle: 0.5 };
+        let musicWant = 'town', musicOn = true, musicStarted = false, musicDuck = 1;
+        try { if (localStorage.getItem('musicOff') === '1') musicOn = false; } catch (e) {}
+        const musicBtn = document.getElementById('music-btn');
+        function refreshMusicBtn() { musicBtn.textContent = 'MUSIC: ' + (musicOn ? 'ON' : 'OFF') + ' (M)'; musicBtn.classList.toggle('off', !musicOn); }
+        function musicTick() {   // glide each track's volume toward its target (crossfade)
+            for (const k in musicTracks) {
+                const a = musicTracks[k];
+                const target = (musicOn && musicStarted && musicWant === k && !document.hidden) ? musicVol[k] * (k === 'town' ? musicDuck : 1) : 0;
+                const v = a.volume, d = target - v;
+                a.volume = Math.abs(d) < 0.02 ? target : v + Math.sign(d) * 0.02;
+                if (a.volume > 0 && a.paused && target > 0) a.play().catch(() => {});
+                if (a.volume === 0 && !a.paused && target === 0) a.pause();
+            }
+        }
+        for (const k in musicTracks) musicTracks[k].volume = 0;
+        setInterval(musicTick, 40);
+        function setMusic(which) {
+            if (which === 'battle' && musicWant !== 'battle') musicTracks.battle.currentTime = 0;
+            musicWant = which;
+        }
+        function startMusic() { if (!musicStarted) { musicStarted = true; } }
+        ['keydown', 'pointerdown'].forEach(ev => window.addEventListener(ev, startMusic, { once: false, passive: true }));
+        function toggleMusic() {
+            musicOn = !musicOn; refreshMusicBtn();
+            try { localStorage.setItem('musicOff', musicOn ? '0' : '1'); } catch (e) {}
+        }
+        musicBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMusic(); });
+        refreshMusicBtn();
+
+        // ---------- Coins, hotbar, sounds ----------
+        let audioCtx = null;
+        function sfx(kind) {
+            try {
+                audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+                const seq = { coin: [[988, 0.07], [1319, 0.14]], buy: [[523, 0.08], [659, 0.08], [784, 0.18]], no: [[196, 0.18]],
+                              catch: [[523, 0.1], [659, 0.1], [784, 0.1], [1047, 0.3]], gift: [[392, 0.1], [523, 0.1], [659, 0.22]] }[kind];
+                let t = audioCtx.currentTime;
+                seq.forEach(([f, d]) => {
+                    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+                    o.type = kind === 'no' ? 'sawtooth' : 'square'; o.frequency.value = f;
+                    g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+                    o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + d); t += d * 0.9;
+                });
+            } catch (e) {}
+        }
+        const coinCountEl = document.getElementById('coin-count'), coinHudEl = document.getElementById('coin-hud');
+        function updateCoinHud(bump) {
+            coinCountEl.textContent = coins;
+            if (bump) { coinHudEl.classList.remove('bump'); void coinHudEl.offsetWidth; coinHudEl.classList.add('bump'); }
+            refreshShop();
+        }
+        function popToast(text) {
+            questToastEl.textContent = text;
+            questToastEl.classList.add('show');
+            clearTimeout(questToastTimer);
+            questToastTimer = setTimeout(() => questToastEl.classList.remove('show'), 3200);
+        }
+        function showBanner(text, ms) {
+            const b = document.getElementById('banner');
+            b.textContent = text; b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+            setTimeout(() => b.classList.remove('show'), ms || 2200);
+        }
+        const slotNames = { guitar: 'Acoustic Guitar', books: 'Book Stack', shoe: 'Asics Shoe (hold Shift to run)', racket: 'Tennis Racket', charlie: 'Charlie!' };
+        const slotIcon = k => k === 'charlie' ? 'charlie_photo.png' : 'junk_' + k + '.png';
+        const hotbarEl = document.getElementById('hotbar'), slotNameEl = document.getElementById('slot-name');
+        let slotNameTimer = null;
+        function renderHotbar() {
+            hotbarEl.innerHTML = '';
+            SLOT_ORDER.forEach((k, i) => {
+                const d = document.createElement('div');
+                d.className = 'slot' + (i === selSlot ? ' sel' : '') + (inventory[k] ? '' : ' empty');
+                d.innerHTML = '<span class="num">' + (i + 1) + '</span>' + (inventory[k] ? '<img src="' + slotIcon(k) + '">' : '') +
+                              (k === 'shoe' && inventory[k] ? '<span class="tag">SHIFT</span>' : '');
+                d.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); selectSlot(i); });
+                hotbarEl.appendChild(d);
+            });
+        }
+        function selectSlot(i) {
+            selSlot = i; renderHotbar();
+            const k = SLOT_ORDER[i];
+            slotNameEl.textContent = inventory[k] ? slotNames[k] : '(empty)';
+            slotNameEl.classList.add('show');
+            clearTimeout(slotNameTimer);
+            slotNameTimer = setTimeout(() => slotNameEl.classList.remove('show'), 1400);
+        }
+
+        // ---------- The guy in the grass ----------
+        function nearMan() {
+            if (!man || inside || encounterOn) return false;
+            return Math.hypot(player.x + player.w / 2 - man.x, player.y + player.h - man.y) < 125;
+        }
+        const GIFTS = ['guitar', 'books', 'racket', 'charlie'];
+        const giftWord = { guitar: 'the guitar', books: 'the books', racket: 'the racket', charlie: 'Charlie' };
+        const manBubbleText = { guitar: '\u266A \u266B \u266A', books: '. . .', racket: 'thwack!', charlie: '\u2665 purr \u2665' };
+        const manToast = { guitar: 'He is strumming away!', books: 'He is lost in a good book!', racket: 'He is swinging the racket!', charlie: 'Charlie is curled up next to him!' };
+        function manPrompt() {
+            if (!nearMan()) return '';
+            const sel = SLOT_ORDER[selSlot];
+            if (GIFTS.includes(sel) && inventory[sel]) return 'Press E to ' + (manHeld ? 'swap to ' : 'give him ') + giftWord[sel];
+            return 'Press E to talk';
+        }
+        function talkMan() {
+            const sel = SLOT_ORDER[selSlot];
+            if (GIFTS.includes(sel) && inventory[sel]) {
+                const prev = manHeld;
+                if (prev) inventory[prev] = true;           // swapping: his old thing goes back to your bag
+                inventory[sel] = false;
+                manHeld = sel;
+                manBubble = { text: manBubbleText[sel], until: performance.now() + 2600 };
+                sfx('gift'); renderHotbar();
+                completeQuest('gift');
+                popToast(manToast[sel] + (prev ? '  (' + giftWord[prev] + ' is back in your bag)' : ''));
+                return;
+            }
+            if (manHeld) manBubble = { text: manBubbleText[manHeld], until: performance.now() + 2200 };
+            else {
+                manBubble = { text: 'hmmmmmmmmm', until: performance.now() + 2600 };
+                if (GIFTS.some(g => inventory[g])) popToast('Select a gift in your hotbar (1-5), then press E');
+                else popToast('He seems bored... maybe the shop has something for him?');
+            }
+        }
+        function drawBubbleAt(text, x, y) {
+            ctx.save();
+            ctx.font = '600 22px Fredoka, sans-serif';
+            const w = ctx.measureText(text).width + 34, h = 42;
+            ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.roundRect(x - w / 2, y - h, w, h, 14); ctx.fill(); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x - 8, y - 2); ctx.lineTo(x, y + 12); ctx.lineTo(x + 8, y - 2); ctx.fillStyle = '#fff'; ctx.fill();
+            ctx.beginPath(); ctx.moveTo(x - 8, y); ctx.lineTo(x, y + 12); ctx.lineTo(x + 8, y); ctx.stroke();
+            ctx.fillStyle = '#fff'; ctx.fillRect(x - 7, y - 4, 14, 5);
+            ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(text, x, y - h / 2);
+            ctx.restore();
+        }
+        // How the sheriff looks for each gift. Positions are in pixels of his pose drawing (tweak the numbers to taste).
+        const MAN_SCALES = { guitar: 0.21, racket: 0.135, charlie: 0.165, books: 0.105 };   // evens out the different drawing sizes
+        const POSE = {
+            guitar: { guitar: { cx: 290, cy: 500, h: 520, rot: 1.25 }, arm: { px: 105, py: 440 } },
+            racket: { shoulder: { x: 520, y: 690 } },
+            charlie: { lap: { x: 268, y: 840, w: 46 } }
+        };
+        function drawRacketArm(P, s, t) {
+            const arm = partImgs.racket, ball = partImgs.ball;
+            if (!okImg(arm)) return;
+            const [sx, sy] = P(POSE.racket.shoulder.x, POSE.racket.shoulder.y);
+            const aw = arm.naturalWidth * s, ah = arm.naturalHeight * s;
+            const swing = Math.sin(t * 4) * 0.2 - 0.25;          // racket tilts up and down
+            ctx.save(); ctx.translate(sx, sy); ctx.rotate(swing);
+            ctx.drawImage(arm, -aw * 0.12, -ah * 0.5, aw, ah);
+            ctx.restore();
+            if (okImg(ball)) {                                    // ball bounces above the racket head
+                const hx = sx + Math.cos(swing) * aw * 0.76, hy = sy + Math.sin(swing) * aw * 0.76;
+                const bw = ball.naturalWidth * s * 1.7, bh = ball.naturalHeight * s * 1.7;
+                const bounce = Math.abs(Math.sin(t * 4 + 1.2));
+                ctx.drawImage(ball, hx - bw / 2, hy - bh - 4 - bounce * 44, bw, bh);
+            }
+        }
+        function drawManPose(pr, held) {
+            const base = poseImgs[held];
+            if (!okImg(base)) return false;
+            const s = MAN_SCALES[held], w = base.naturalWidth * s, h = base.naturalHeight * s, x0 = pr.x - w / 2, y0 = pr.y - h;
+            const t = performance.now() / 1000;
+            ctx.fillStyle = 'rgba(0,0,0,0.18)';
+            ctx.beginPath(); ctx.ellipse(pr.x, pr.y - 3, w * 0.55, 8, 0, 0, Math.PI * 2); ctx.fill();
+            const P = (cx, cy) => [x0 + cx * s, y0 + cy * s];
+            if (held === 'racket') drawRacketArm(P, s, t);      // behind the body so the sleeve tucks into his shoulder
+            ctx.drawImage(base, x0, y0, w, h);
+            pr.topY = y0;
+            if (held === 'guitar') {
+                const g = POSE.guitar.guitar, it = itemImgs.guitar;
+                if (okImg(it)) {
+                    const gh = g.h * s, gw = gh * it.naturalWidth / it.naturalHeight, [gx, gy] = P(g.cx, g.cy);
+                    ctx.save(); ctx.translate(gx, gy); ctx.rotate(g.rot);
+                    ctx.drawImage(it, -gw / 2, -gh / 2, gw, gh); ctx.restore();
+                }
+                const arm = partImgs.guitar;
+                if (okImg(arm)) {          // strumming arm: swings back and forth over the guitar
+                    const [ax, ay] = P(POSE.guitar.arm.px, POSE.guitar.arm.py);
+                    const sw = Math.sin(t * 9), aw = arm.naturalWidth * s, ah = arm.naturalHeight * s;
+                    ctx.save(); ctx.translate(ax + sw * 3, ay + Math.abs(sw) * 3); ctx.rotate(sw * 0.35);
+                    ctx.drawImage(arm, -aw * 0.2, -ah * 0.1, aw, ah); ctx.restore();
+                }
+            }
+            if (held === 'charlie') {
+                const ph = charlieIconImg;
+                if (okImg(ph)) {
+                    const L = POSE.charlie.lap, [lx, ly] = P(L.x, L.y);
+                    const cw = L.w, ch = cw * ph.naturalHeight / ph.naturalWidth, br = Math.sin(t * 2.2) * 1.2;
+                    ctx.drawImage(ph, lx - cw / 2, ly - ch + br, cw, ch);
+                }
+            }
+            return true;
+        }
+        function drawMan(pr) {
+            if (manHeld && drawManPose(pr, manHeld)) return;
+            const img = manIdleImg;
+            if (!okImg(img)) return;
+            const w = pr.w, h = w * img.naturalHeight / img.naturalWidth;
+            ctx.fillStyle = 'rgba(0,0,0,0.18)';
+            ctx.beginPath(); ctx.ellipse(pr.x, pr.y - 3, w * 0.46, 8, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.drawImage(img, pr.x - w / 2, pr.y - h, w, h);
+            pr.topY = pr.y - h;
+        }
+        function drawOverlays() {
+            const now = performance.now();
+            if (man && manHeld === 'guitar') {         // floating music notes
+                ctx.save(); ctx.font = '700 30px Fredoka, sans-serif'; ctx.fillStyle = '#222'; ctx.textAlign = 'center';
+                for (let i = 0; i < 3; i++) {
+                    const t = ((now / 1800) + i / 3) % 1;
+                    ctx.globalAlpha = 1 - t;
+                    ctx.fillText(i % 2 ? '♫' : '♪', man.x - 30 + i * 28 + Math.sin(t * 6 + i) * 8, man.y - 70 - t * 70);
+                }
+                ctx.restore();
+            }
+            if (man && manBubble) {
+                if (now > manBubble.until) manBubble = null;
+                else drawBubbleAt(manBubble.text, man.x, (man.topY || man.y - 60) - 18);
+            }
+            for (let i = floaters.length - 1; i >= 0; i--) {
+                const f = floaters[i], t = (now - f.t0) / 900;
+                if (t >= 1) { floaters.splice(i, 1); continue; }
+                ctx.save(); ctx.globalAlpha = 1 - t; ctx.font = '700 28px Fredoka, sans-serif';
+                ctx.textAlign = 'center'; ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.fillStyle = '#ffe45c';
+                ctx.strokeText(f.text, f.x, f.y - 30 - t * 50); ctx.fillText(f.text, f.x, f.y - 30 - t * 50); ctx.restore();
+            }
+        }
+
+        // ---------- Coins ----------
+        function updateCoins() {
+            const fx = player.x + player.w / 2, fy = player.y + player.h - 10;
+            coinItems.forEach(c => {
+                if (c.got) return;
+                if (Math.hypot(c.x - fx, c.y - fy) < 48) {
+                    c.got = true; coins++; sfx('coin'); updateCoinHud(true);
+                    floaters.push({ x: c.x, y: c.y, text: '+1', t0: performance.now() });
+                }
+            });
+        }
+        function drawCoin(c) {
+            const t = performance.now() / 1000, bob = Math.abs(Math.sin(t * 3 + c.ph)) * 6;
+            const sx = 0.3 + 0.7 * Math.abs(Math.cos(t * 2.2 + c.ph));
+            ctx.fillStyle = 'rgba(0,0,0,0.22)';
+            ctx.beginPath(); ctx.ellipse(c.x, c.y, 11 - bob * 0.3, 4, 0, 0, Math.PI * 2); ctx.fill();
+            const cy = c.y - 18 - bob;
+            ctx.save(); ctx.translate(c.x, cy); ctx.scale(sx, 1);
+            ctx.fillStyle = '#f5c518'; ctx.strokeStyle = '#2a2108'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(0, 0, 13, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.stroke();
+            ctx.restore();
+        }
+
+        // ---------- Charlie chase ----------
+        let charlieCaught = false;
+        const chase = { active: false, x: 0, y: 0, left: 0, grace: 0, dashUntil: 0, nextDash: 0, face: 1, moving: false, bias: 1 };
+        const CHASE_MS = 45000;
+        const chaseHudEl = document.getElementById('chase-hud');
+        function chaseBlocked(x, y) {
+            if (x < 40 || x > WORLD_WIDTH - 40 || y < 310 || y > WORLD_HEIGHT - 20) return true;
+            const f = { x: x - 13, y: y - 10, w: 26, h: 10 };
+            for (const h of houses) if (checkRectCollision(f, h.hit)) return true;
+            for (const pr of props) if (checkRectCollision(f, pr.hit)) return true;
+            if (checkCircleRectCollision(fountain, f)) return true;
+            return false;
+        }
+        function startChase() {
+            if (!charlieBush || charlieCaught) return;
+            chase.active = true; chase.left = CHASE_MS; chase.grace = 1500;
+            chase.x = charlieBush.x + (Math.random() < 0.5 ? -1 : 1) * 90; chase.y = charlieBush.y + 28;
+            for (let k = 0; k < 6 && chaseBlocked(chase.x, chase.y); k++) chase.x += (chase.x < charlieBush.x ? -30 : 30);
+            chase.dashUntil = performance.now() + 1500; chase.nextDash = performance.now() + 3200; chase.bias = Math.random() < 0.5 ? 1 : -1;
+            chaseHudEl.classList.add('show');
+            showBanner('CHASE HIM!', 1400);
+            popToast('Charlie is running! Catch him before time runs out!');
+        }
+        function updateChase(step) {
+            if (!chase.active) return;
+            const dtms = step * 16.667, now = performance.now();
+            chase.left -= dtms; chase.grace -= dtms;
+            chaseHudEl.textContent = 'Catch Charlie!  ' + Math.max(0, Math.ceil(chase.left / 1000)) + 's';
+            const px = player.x + player.w / 2, py = player.y + player.h - 6;
+            const dist = Math.hypot(chase.x - px, chase.y - py);
+            if (chase.grace <= 0 && dist < 70) {
+                chase.active = false; chaseHudEl.classList.remove('show');
+                inventory.charlie = true; charlieCaught = true; coins += 5; sfx('catch');
+                updateCoinHud(true); renderHotbar();
+                floaters.push({ x: chase.x, y: chase.y, text: '+5', t0: now });
+                completeQuest('catch'); setMusic('town');
+                showBanner('YOU CAUGHT CHARLIE!', 2600);
+                return;
+            }
+            if (chase.left <= 0) {
+                chase.active = false; chaseHudEl.classList.remove('show');
+                popToast('Charlie got away... find his bush and try again!'); setMusic('town');
+                return;
+            }
+            // run away from the player; sprint in short bursts when you get close
+            if (dist < 200 && now > chase.nextDash) { chase.dashUntil = now + 450; chase.nextDash = now + 2400; }
+            const speed = (now < chase.dashUntil ? 5.6 : 3.8) * step;
+            let ang = Math.atan2(chase.y - py, chase.x - px);
+            // gentle push away from the edges of the map
+            let ax = Math.cos(ang), ay = Math.sin(ang);
+            if (chase.x < 200) ax += (200 - chase.x) / 200; if (chase.x > WORLD_WIDTH - 200) ax -= (chase.x - (WORLD_WIDTH - 200)) / 200;
+            if (chase.y < 450) ay += (450 - chase.y) / 200; if (chase.y > WORLD_HEIGHT - 200) ay -= (chase.y - (WORLD_HEIGHT - 200)) / 200;
+            ang = Math.atan2(ay, ax);
+            chase.moving = false;
+            for (const off of [0, 35, -35, 70, -70, 110, -110, 150, -150]) {
+                const a = ang + chase.bias * off * Math.PI / 180;
+                const nx = chase.x + Math.cos(a) * speed, ny = chase.y + Math.sin(a) * speed;
+                if (!chaseBlocked(nx, ny)) {
+                    chase.x = nx; chase.y = ny; chase.moving = true;
+                    if (Math.abs(Math.cos(a)) > 0.2) chase.face = Math.cos(a) > 0 ? 1 : -1;
+                    if (off !== 0 && Math.random() < 0.02) chase.bias *= -1;
+                    break;
+                }
+            }
+        }
+        function drawChaseCharlie() {
+            if (!chase.active || !okImg(charlieIconImg)) return;
+            const w = 120, h = w * charlieIconImg.naturalHeight / charlieIconImg.naturalWidth, t = performance.now() / 1000;
+            const hop = chase.moving ? Math.abs(Math.sin(t * 14)) * 9 : 0;
+            ctx.fillStyle = 'rgba(0,0,0,0.22)';
+            ctx.beginPath(); ctx.ellipse(chase.x, chase.y, 36, 9, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.save(); ctx.translate(chase.x, chase.y - hop);
+            ctx.scale(chase.face, 1); ctx.rotate(chase.moving ? Math.sin(t * 14) * 0.1 : 0);
+            ctx.drawImage(charlieIconImg, -w / 2, -h, w, h); ctx.restore();
+        }
+
+        renderHotbar(); updateCoinHud(false);
+        let introShown = true;
+        function dismissIntro() {
+            if (!introShown) return;
+            introShown = false;
+            document.getElementById('intro').classList.add('gone');
+            setTimeout(() => popToast('Collect the gold coins around town!'), 900);
+        }
+        document.getElementById('intro').addEventListener('click', dismissIntro);
+        document.addEventListener('keydown', dismissIntro);
+
+        function enterHouse(houseId) {
+            const house = houses.find(h => h.id === houseId);
+            if (!house) return;
+            inside = true; musicDuck = 0.4;
+            currentDoor = doors.find(d => d.houseId === houseId);
+            completeQuest(houseQuest[houseId]);
+            keys.up = keys.left = keys.down = keys.right = false;
+            player.isMoving = false;
+            interiorImgEl.src = house.interior;
+            interiorImgEl.alt = house.name;
+            interiorEl.classList.add('open');
+            const isBrewery = house.id === 5;
+            potionsEl.classList.toggle('active', isBrewery);
+            potionHintEl.classList.toggle('active', isBrewery);
+            if (isBrewery) layoutPotions();
+            const isFamily = house.id === 4;
+            const isRoom = house.id === 3;
+            roomEl.classList.toggle('active', isRoom);
+            clearInterval(typeTimer);
+            saidEl.classList.remove('show'); askEl.classList.remove('show');
+            famEl.classList.toggle('active', isFamily);
+            famHintEl.classList.toggle('active', isFamily);
+            if (isFamily) layoutFamily();
+            const isShop = house.id === 1;
+            shopEl.classList.toggle('active', isShop);
+            shopHintEl.classList.toggle('active', isShop);
+            if (isShop) layoutShop();
+            const isLab = house.id === 2;
+            labEl.classList.toggle('active', isLab);
+            labHintEl.classList.toggle('active', isLab);
+            if (isLab) layoutLab();
+            // Greetings from the shopkeeper and the witch
+            clearBrew();
+            if (isRoom) enterRoom();
+            if (isShop) {
+                placeKeeperBubble();
+                sayLines(bubbleKeeper, [['Welcome to......', 1900], ['whatever, just be quick', 3800]], 500);
+            }
+            if (house.id === 2) {   // The Lab
+                placeKeeperBubble(0.355, 0.12);
+                sayLines(bubbleKeeper, [['HIIIIII stranger', 2000], ['feel free to use the computer!', 4000]], 500);
+            }
+            if (isBrewery) sayLines(bubbleWitch, [['Try my potions.....', 2100], ['....if you dare', 3800]], 500);
+        }
+
+        function exitHouse() {
+            if (!inside || dying) return;
+            inside = false; musicDuck = 1;
+            flushQuestToasts();
+            clearBrew();
+            potionsEl.classList.remove('active');
+            potionHintEl.classList.remove('active');
+            endTalk();
+            endShop();
+            closeWork();
+            roomEl.classList.remove('active'); clearInterval(typeTimer);
+            labEl.classList.remove('active');
+            labHintEl.classList.remove('active');
+            shopEl.classList.remove('active');
+            shopHintEl.classList.remove('active');
+            famEl.classList.remove('active');
+            famHintEl.classList.remove('active');
+            interiorEl.classList.remove('open');
+            // Put the player just outside the door
+            if (currentDoor) {
+                player.x = currentDoor.x + currentDoor.w / 2 - player.w / 2;
+                player.y = currentDoor.y + 30;
+                doorLock = true;
+            }
+        }
+        document.getElementById('interior-exit').addEventListener('click', exitHouse);
+        interiorEl.addEventListener('touchstart', (e) => { if (!workOpen && e.target === interiorEl || e.target === interiorImgEl) { /* tap anywhere also leaves */ exitHouse(); } }, { passive: true });
+
+        let activeMessage = "";
+
+        function checkRectCollision(r1, r2) {
+            return (
+                r1.x < r2.x + r2.w &&
+                r1.x + r1.w > r2.x &&
+                r1.y < r2.y + r2.h &&
+                r1.y + r1.h > r2.y
+            );
+        }
+
+        function checkCircleRectCollision(circle, rect) {
+            let testX = circle.x;
+            let testY = circle.y;
+            if (circle.x < rect.x) testX = rect.x;      
+            else if (circle.x > rect.x + rect.w) testX = rect.x + rect.w;   
+            if (circle.y < rect.y) testY = rect.y;      
+            else if (circle.y > rect.y + rect.h) testY = rect.y + rect.h;   
+
+            let distX = circle.x - testX;
+            let distY = circle.y - testY;
+            return Math.sqrt((distX*distX) + (distY*distY)) <= circle.r;
+        }
+
+        function isCollidingWithObstacles(testPlayerX, testPlayerY) {
+            const testRect = { x: testPlayerX, y: testPlayerY, w: player.w, h: player.h };
+            // Obstacles only care about the player's FEET (small box at the bottom of the sprite),
+            // so you can stand right in front of lamps, benches and houses
+            const feet = { x: testPlayerX + player.w / 2 - 22, y: testPlayerY + player.h - 18, w: 44, h: 18 };
+
+            // World boundaries
+            if (testRect.x < 0 || testRect.x + testRect.w > WORLD_WIDTH ||
+                testRect.y < 0 || testRect.y + testRect.h > WORLD_HEIGHT) {
+                return true;
+            }
+
+            // Houses
+            for (let house of houses) {
+                if (checkRectCollision(feet, house.hit)) return true;
+            }
+
+            // Lamp posts and benches
+            for (let pr of props) {
+                if (checkRectCollision(feet, pr.hit)) return true;
+            }
+
+            // Fountain
+            if (checkCircleRectCollision(fountain, feet)) return true;
+
+            return false;
+        }
+
+        let lastFrameT = performance.now();
+        function update() {
+            // Time-based movement: same speed whatever the frame rate (60fps = 1.0)
+            const nowT = performance.now();
+            const step = Math.min((nowT - lastFrameT) / 16.667, 3);
+            lastFrameT = nowT;
+            // Speed boost from the red potion (keeps counting down while you're indoors)
+            const boosted = Date.now() < speedBoostUntil;
+            player.speed = boosted ? BOOST_SPEED : (inventory.shoe && keys.shift ? BASE_SPEED * 1.6 : BASE_SPEED);
+            boostHud.style.display = boosted ? 'block' : 'none';
+            if (boosted) boostHud.textContent = '\u26A1 Speed boost ' + Math.ceil((speedBoostUntil - Date.now()) / 1000) + 's';
+
+            if (inside || forestOpen) return; // game is paused while you're inside a house or choosing at the forest
+
+            let dx = 0;
+            let dy = 0;
+
+            const sp = player.speed * step;
+            if (keys.up) dy -= sp;
+            if (keys.down) dy += sp;
+            if (keys.left) dx -= sp;
+            if (keys.right) dx += sp;
+
+            if (dx !== 0 && dy !== 0) {
+                const length = Math.sqrt(dx * dx + dy * dy);
+                dx = (dx / length) * sp;
+                dy = (dy / length) * sp;
+            }
+
+            player.isMoving = (dx !== 0 || dy !== 0);
+
+            // Update facing direction based on horizontal movement
+            if (dx < 0) player.facingLeft = true;
+            if (dx > 0) player.facingLeft = false;
+
+            if (dx !== 0 && !isCollidingWithObstacles(player.x + dx, player.y)) player.x += dx;
+            if (dy !== 0 && !isCollidingWithObstacles(player.x, player.y + dy)) player.y += dy;
+
+            // Update Camera Position to follow player
+            camera.x = player.x + player.w / 2 - canvas.width / 2;
+            camera.y = player.y + player.h / 2 - canvas.height / 2;
+
+            // Clamp camera to world bounds
+            if (camera.x < 0) camera.x = 0;
+            if (camera.y < 0) camera.y = 0;
+            if (camera.x > WORLD_WIDTH - canvas.width) camera.x = WORLD_WIDTH - canvas.width;
+            if (camera.y > WORLD_HEIGHT - canvas.height) camera.y = WORLD_HEIGHT - canvas.height;
+
+            updateChase(step);
+            updateCoins();
+
+            // Trigger Zones
+            let currentTriggerMessage = "";
+            const playerRect = { x: player.x, y: player.y, w: player.w, h: player.h };
+
+            const feetY = player.y + player.h;
+            if (feetY > 360) forestLock = false;
+            else if (feetY < 300 && !forestLock && !inside && !forestOpen) openForestMenu();
+
+            const mp = manPrompt(); if (mp) currentTriggerMessage = mp;
+
+            // Doors: step into the zone in front of a door (with your feet) to go inside
+            const feetRect = { x: player.x + player.w / 2 - 22, y: player.y + player.h - 18, w: 44, h: 18 };
+            let onDoor = null;
+            for (let door of doors) {
+                if (checkRectCollision(feetRect, door)) onDoor = door;
+            }
+            if (!onDoor) doorLock = false;
+            if (onDoor && !doorLock) {
+                enterHouse(onDoor.houseId);
+            }
+            // The shaking bush
+            if (charlieBush && !chase.active && !charlieCaught) {
+                const onBush = checkRectCollision(feetRect, charlieBush.zone);
+                if (!onBush) bushLock = false;
+                if (onBush && !bushLock && !inside) startEncounter();
+            }
+
+            // UI Overlay Toggle
+            if (currentTriggerMessage !== activeMessage) {
+                activeMessage = currentTriggerMessage;
+                if (activeMessage !== "") {
+                    messageText.innerText = activeMessage;
+                    uiOverlay.classList.remove('opacity-0');
+                    uiOverlay.classList.add('opacity-100');
+                } else {
+                    uiOverlay.classList.remove('opacity-100');
+                    uiOverlay.classList.add('opacity-0');
+                }
+            }
+        }
+
+        function drawHouse(house) {
+            // Hand-drawn sprite: centred on the house, bottom sits just below the door line
+            if (house.img && house.img.complete && house.img.naturalHeight !== 0) {
+                const sw = house.spriteW;
+                const sh = sw * house.img.naturalHeight / house.img.naturalWidth;
+                const bottom = house.y + house.h + 10;
+                ctx.drawImage(house.img, house.x + house.w / 2 - sw / 2, bottom - sh, sw, sh);
+                return;
+            }
+            // Fallback: original placeholder drawing
+            ctx.fillStyle = house.color;
+            ctx.fillRect(house.x, house.y, house.w, house.h);
+            
+            // Roof
+            ctx.fillStyle = house.roof;
+            ctx.beginPath();
+            ctx.moveTo(house.x - 15, house.y + 20);
+            ctx.lineTo(house.x + house.w / 2, house.y - 40);
+            ctx.lineTo(house.x + house.w + 15, house.y + 20);
+            ctx.closePath();
+            ctx.fill();
+
+            // Windows
+            ctx.fillStyle = '#ecf0f1';
+            ctx.fillRect(house.x + 25, house.y + 40, 35, 35); 
+            ctx.fillRect(house.x + house.w - 60, house.y + 40, 35, 35); 
+            
+            ctx.fillStyle = '#bdc3c7';
+            ctx.fillRect(house.x + 40, house.y + 40, 5, 35);
+            ctx.fillRect(house.x + 25, house.y + 55, 35, 5);
+            ctx.fillRect(house.x + house.w - 45, house.y + 40, 5, 35);
+            ctx.fillRect(house.x + house.w - 60, house.y + 55, 35, 5);
+        }
+
+        function drawProp(pr) {
+            if (pr.draw) { pr.draw(pr); return; }
+            if (!(pr.img.complete && pr.img.naturalHeight !== 0)) return;
+            const h = pr.w * pr.img.naturalHeight / pr.img.naturalWidth;
+            let ox = 0;
+            if (pr === charlieBush && !chase.active && !charlieCaught) {   // rustle for a moment, rest for a moment (like Pokemon grass)
+                const t = (performance.now() % 2200) / 1000;
+                if (t < 0.9) ox = Math.sin(t * 38) * 3.2 * (1 - t / 0.9);
+            }
+            ctx.drawImage(pr.img, pr.x - pr.w / 2 + ox, pr.y - h, pr.w, h);
+        }
+
+        function drawPaths() {
+            // Dark outline, then the flagstone texture on top
+            ctx.fillStyle = '#2a2b1c';
+            paths.forEach(p => ctx.fillRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8));
+            ctx.fillStyle = pavementPattern || pathColor;
+            paths.forEach(p => ctx.fillRect(p.x, p.y, p.w, p.h));
+        }
+
+        function drawDecor() {
+            decor.forEach(d => {
+                if (!(d.img.complete && d.img.naturalHeight !== 0)) return;
+                const h = d.w * d.img.naturalHeight / d.img.naturalWidth;
+                ctx.drawImage(d.img, d.x - d.w / 2, d.y - h, d.w, h);
+            });
+        }
+
+        function draw() {
+            ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Apply Camera Translation
+            ctx.save();
+            ctx.translate(-camera.x, -camera.y);
+
+            // Draw Paths (Bottom Layer)
+            drawPaths();
+
+            // Draw Forest (hand-drawn tree strips, tiled and flipped for variety)
+            ctx.fillStyle = '#2d4d2e';
+            ctx.fillRect(0, 0, WORLD_WIDTH, 120);
+            if (treesImg.complete && treesImg.naturalHeight !== 0) {
+                const tw = 940, th = tw * treesImg.naturalHeight / treesImg.naturalWidth;
+                const row = (y, off, flipFirst) => {
+                    for (let i = -1, x = off - tw; x < WORLD_WIDTH; i++, x += tw) {
+                        const flip = ((i + (flipFirst ? 1 : 0)) % 2 + 2) % 2 === 1;
+                        ctx.save();
+                        if (flip) { ctx.translate(x + tw, 0); ctx.scale(-1, 1); ctx.drawImage(treesImg, 0, y, tw, th); }
+                        else ctx.drawImage(treesImg, x, y, tw, th);
+                        ctx.restore();
+                    }
+                };
+                row(-35, -300, false);   // back row
+                row(32, -90, true);      // front row, offset and mirrored
+            }
+
+            drawDecor();
+
+            // (Door trigger zones are invisible now - the house sprites have their own doors)
+
+            // Draw houses, lamps, benches and the player sorted by ground line,
+            // so the player walks behind things above him and in front of things below him
+            const drawables = [];
+            houses.forEach(h => drawables.push({ base: h.y + h.h + 10, draw: () => drawHouse(h) }));
+            props.forEach(pr => drawables.push({ base: pr.y, draw: () => drawProp(pr) }));
+            coinItems.forEach(c => { if (!c.got) drawables.push({ base: c.y, draw: () => drawCoin(c) }); });
+            if (chase.active) drawables.push({ base: chase.y, draw: drawChaseCharlie });
+            drawables.push({ base: fountain.y + 55, draw: drawFountain });
+            drawables.push({ base: player.y + player.h, draw: drawPlayer });
+            drawables.sort((a, b) => a.base - b.base);
+            drawables.forEach(d => d.draw());
+            drawOverlays();
+
+            // Restore canvas to screen coordinates
+            ctx.restore();
+        }
+
+        function drawFountain() {
+            // Hand-drawn fountain sprite (collision stays the circle in 'fountain')
+            if (fountainImg.complete && fountainImg.naturalHeight !== 0) {
+                const fw = 210;
+                const fh = fw * fountainImg.naturalHeight / fountainImg.naturalWidth;
+                ctx.drawImage(fountainImg, fountain.x - fw / 2, fountain.y + 55 - fh, fw, fh);
+                return;
+            }
+            // Fallback: original placeholder fountain
+            ctx.fillStyle = fountain.outline;
+            ctx.beginPath(); ctx.arc(fountain.x, fountain.y, fountain.r + 8, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = fountain.color;
+            ctx.beginPath(); ctx.arc(fountain.x, fountain.y, fountain.r, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // Step-down the big avatar drawing (halving each time) so it stays crisp instead of jagged when drawn small
+        let _pSprite = null, _pSpriteH = 0;
+        function playerSprite() {
+            const target = Math.max(64, Math.round(player.h * 2));
+            if (_pSprite && _pSpriteH === target) return _pSprite;
+            let c = document.createElement('canvas');
+            c.width = playerImg.naturalWidth; c.height = playerImg.naturalHeight;
+            c.getContext('2d').drawImage(playerImg, 0, 0);
+            while (c.height / 2 >= target) {
+                const n = document.createElement('canvas');
+                n.width = Math.ceil(c.width / 2); n.height = Math.ceil(c.height / 2);
+                const x = n.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+                x.drawImage(c, 0, 0, n.width, n.height); c = n;
+            }
+            _pSprite = c; _pSpriteH = target; return c;
+        }
+        function drawPlayer() {
+            // Draw Player with Waddle Animation
+            ctx.save();
+            
+            // Translate context to the bottom-center of the player (the pivot point for feet)
+            ctx.translate(player.x + player.w / 2, player.y + player.h);
+            
+            // Flip the canvas horizontally if the player is facing left
+            if (player.facingLeft) {
+                ctx.scale(-1, 1);
+            }
+
+            if (player.isMoving) {
+                // South Park waddle: oscillate rotation using a sine wave based on time
+                const waddleAngle = Math.sin(Date.now() / 100) * 0.15; // 0.15 radians is ~8.5 degrees
+                ctx.rotate(waddleAngle);
+            }
+            
+            // Draw the character image if it has successfully loaded
+            if (playerImg.complete && playerImg.naturalHeight !== 0) {
+                // Offset drawing by -w/2 and -h so the pivot remains at the feet
+                const pw = player.h * playerImg.naturalWidth / playerImg.naturalHeight;
+                ctx.drawImage(playerSprite(), -pw / 2, -player.h, pw, player.h);
+            } else {
+                // Fallback rendering in case the image is missing or still loading
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.beginPath(); ctx.ellipse(0, 0, player.w/1.4, 8, 0, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#e74c3c';
+                ctx.fillRect(-player.w / 2, -player.h, player.w, player.h);
+            }
+            
+            ctx.restore();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+
+        // ---- Ancient Forest: climb the tree or enter the forest (each opens a comic in a new tab) ----
+        const forestMenuEl = document.getElementById('forest-menu');
+        let forestOpen = false, forestLock = false;
+        function openForestMenu() {
+            forestOpen = true; forestLock = true; completeQuest('forest');
+            keys.up = keys.left = keys.down = keys.right = false; player.isMoving = false;
+            forestMenuEl.classList.add('show');
+        }
+        function closeForestMenu(url) {
+            if (!forestOpen) return;
+            forestOpen = false;
+            forestMenuEl.classList.remove('show');
+            player.y += 70;   // step back out of the trigger zone
+            if (url) { completeQuest('comic'); window.open(url, '_blank'); }
+        }
+        document.getElementById('fm-tree').addEventListener('click', () => closeForestMenu('comics/tree/index.html'));
+        document.getElementById('fm-forest').addEventListener('click', () => closeForestMenu('comics/forest/index.html'));
+        document.getElementById('fm-back').addEventListener('click', () => closeForestMenu());
+
+        function handleKey(e, isDown) {
+            if (!e.key) return; // Ensure key property exists
+            const k = e.key.toLowerCase();
+
+            if (k === 'shift') { keys.shift = isDown; return; }
+            if (isDown && k === 'm' && !e.ctrlKey && !e.metaKey) { toggleMusic(); return; }
+            if (forestOpen) {
+                if (isDown && k === '1') { e.preventDefault(); closeForestMenu('comics/tree/index.html'); }
+                else if (isDown && k === '2') { e.preventDefault(); closeForestMenu('comics/forest/index.html'); }
+                else if (isDown && k === 'escape') { e.preventDefault(); closeForestMenu(); }
+                return;
+            }
+
+            // Checklist: I opens / closes it, Esc closes it
+            if (isDown && k === 'i') { e.preventDefault(); toggleChecklist(); return; }
+            if (isDown && k === 'escape' && checklistEl.classList.contains('open')) { e.preventDefault(); toggleChecklist(); return; }
+
+            // Wild Charlie encounter: Enter / Space / E / Z go to the next line, Esc skips out
+            if (encounterOn) {
+                if (isDown && (k === 'enter' || k === ' ' || k === 'e' || k === 'z')) { e.preventDefault(); advanceEncounter(); }
+                else if (isDown && k === 'escape') { e.preventDefault(); endEncounter(); }
+                return;
+            }
+
+            // Hotbar: 1-5 selects a slot
+            if (isDown && k.length === 1 && k >= '1' && k <= '5') { selectSlot(+k - 1); return; }
+
+            // While inside a house: Esc / Enter / Space / E leaves
+            if (inside) {
+                if (isDown && shopTalking && k === 'enter') { e.preventDefault(); buyItem(); }
+                else if (isDown && (k === 'escape' || k === 'enter' || k === ' ' || k === 'e')) {
+                    e.preventDefault();
+                    if (workOpen) closeWork(); else if (talking) endTalk(); else if (shopTalking) endShop(); else exitHouse();
+                } else if (isDown && shopTalking && k === 'b') { e.preventDefault(); buyItem(); }
+                return;
+            }
+            
+            if (isDown && (k === 'e' || k === 'enter') && nearMan()) { e.preventDefault(); talkMan(); return; }
+
+            // Track if it's a movement key to prevent default scrolling
+            let isMovementKey = false;
+
+            if (k === 'w' || k === 'arrowup') { keys.up = isDown; isMovementKey = true; }
+            if (k === 'a' || k === 'arrowleft') { keys.left = isDown; isMovementKey = true; }
+            if (k === 's' || k === 'arrowdown') { keys.down = isDown; isMovementKey = true; }
+            if (k === 'd' || k === 'arrowright') { keys.right = isDown; isMovementKey = true; }
+
+            if (isMovementKey && isDown) {
+                e.preventDefault(); // Prevents page scrolling when using arrow keys
+            }
+        }
+
+        // Attach to document for better focus capturing inside browser frames
+        document.addEventListener('keydown', (e) => handleKey(e, true));
+        document.addEventListener('keyup', (e) => handleKey(e, false));
+
+        const dBtns = document.querySelectorAll('.d-btn');
+        dBtns.forEach(btn => {
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const key = btn.getAttribute('data-key').toLowerCase();
+                if (key === 'arrowup') keys.up = true;
+                if (key === 'arrowleft') keys.left = true;
+                if (key === 'arrowdown') keys.down = true;
+                if (key === 'arrowright') keys.right = true;
+                btn.style.background = 'rgba(255,255,255,0.6)';
+            });
+            btn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                const key = btn.getAttribute('data-key').toLowerCase();
+                if (key === 'arrowup') keys.up = false;
+                if (key === 'arrowleft') keys.left = false;
+                if (key === 'arrowdown') keys.down = false;
+                if (key === 'arrowright') keys.right = false;
+                btn.style.background = 'rgba(255,255,255,0.2)';
+            });
+        });
+
+        window.onload = () => {
+            gameLoop();
+        };
+    </script>
+</body>
+</html>
